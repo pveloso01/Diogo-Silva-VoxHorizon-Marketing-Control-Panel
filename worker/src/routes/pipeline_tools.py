@@ -173,12 +173,21 @@ def _fetch_brief_creatives(brief_id: str) -> list[dict[str, Any]]:
     sb = get_supabase_admin()
     resp = (
         sb.table("creatives")
-        .select("id, concept, ratio, version, file_path_supabase")
+        .select("id, concept, ratio, version, file_path_supabase, deleted_at")
         .eq("brief_id", brief_id)
         .execute()
     )
     rows = resp.data
-    return list(rows) if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        return []
+    # Exclude soft-deleted creatives. Without this, the idempotent-resume check
+    # (_already_rendered_concepts) counts a soft-deleted final as "done", so
+    # re-rendering a concept whose final was archived/superseded is silently
+    # skipped forever (it stalled the generation recovery on e087bbe1). The
+    # operator's state read should not surface deleted rows either. Filtered in
+    # Python (not a .is_() query) to keep the result identical when callers omit
+    # the column.
+    return [r for r in rows if isinstance(r, dict) and not r.get("deleted_at")]
 
 
 def _fetch_events_tail(pipeline_id: str, *, limit: int) -> list[dict[str, Any]]:
