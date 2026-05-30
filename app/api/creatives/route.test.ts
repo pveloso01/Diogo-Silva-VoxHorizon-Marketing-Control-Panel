@@ -48,6 +48,8 @@ beforeEach(() => {
   result = { data: [], error: null };
   delete lastCalls.eq;
   delete lastCalls.in;
+  delete lastCalls.is;
+  delete lastCalls.not;
 });
 
 afterEach(() => {
@@ -61,6 +63,8 @@ describe("GET /api/creatives", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ creatives: [{ id: "c1" }] });
     expect(lastCalls.eq).toEqual(["brief_id", "b1"]);
+    // Soft-deleted creatives must be excluded from the ideation grid.
+    expect(lastCalls.is).toEqual(["deleted_at", null]);
   });
 
   it("500s on a brief_id query error", async () => {
