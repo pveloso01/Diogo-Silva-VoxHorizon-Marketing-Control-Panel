@@ -22,7 +22,10 @@ def make_settings(**overrides: object) -> Settings:
         "worker_url": "http://worker.test",
         "worker_shared_secret": "test-secret",
         "consumer_id": "operator-daemon-test",
-        "hermes_container_name": "hermes-agent-operator",
+        # hermes_container_name is bound to the HERMES_OPERATOR_CONTAINER_NAME
+        # validation alias, so it must be supplied under that key (not the
+        # field name) when constructing the model directly.
+        "HERMES_OPERATOR_CONTAINER_NAME": "hermes-agent-operator",
         "consumer_heartbeat_s": 5,
         "work_item_heartbeat_s": 2,
         "claim_poll_interval_s": 1,
