@@ -269,7 +269,12 @@ def test_shipped_operator_policy_contents() -> None:
     # stage-persist tools (qa/compliance/copy/spec/finalize/monitor/signal) —
     # all free writes that clear no gate.
     assert overlay.allowlist == frozenset(ALLOWLISTED_TOOLS)
-    assert overlay.blocklist == frozenset({"execute_code", "terminal", "shell"})
+    # execute_code/terminal/shell are the code/shell tools; fetch_url/patch/
+    # process are the remaining non-MCP write/exec escape hatches (fetch_url is
+    # the one SILENT HTTP-write path) the operator must never use.
+    assert overlay.blocklist == frozenset(
+        {"execute_code", "terminal", "shell", "fetch_url", "patch", "process"}
+    )
 
 
 def test_launch_not_in_allowlist_shipped() -> None:
@@ -284,7 +289,7 @@ def test_operator_overlay_blocks_shell_tools() -> None:
     run helper.py (which would hit the spend-gate long-poll and hang); it must
     author payloads directly and persist them via the MCP pipeline tools."""
     overlay = load_overlay(OPERATOR_POLICY_PATH)
-    for tool in ("execute_code", "terminal", "shell"):
+    for tool in ("execute_code", "terminal", "shell", "fetch_url", "patch", "process"):
         assert overlay.evaluate(tool, {}).action == "block"
 
 

@@ -86,3 +86,17 @@ blocklist:
   - execute_code
   - terminal
   - shell
+  # fetch_url is the operator's one SILENT write hatch: it is in the in-code
+  # base allowlist as "read-only HTTP", but it enforces NO method/URL policy, so
+  # the operator can fetch_url a POST/PATCH to the worker or Supabase REST and
+  # write state (briefs, pipeline_events, stage_advanced) WITHOUT the manager
+  # seeing it -- bypassing the pipeline_operator_* MCP tools entirely. The
+  # operator authors from reasoning + persists via its MCP tools and never needs
+  # to fetch an arbitrary URL, so hard-block it. (Verified: the operator used a
+  # raw HTTP write to advance ideation->review and PATCH a brief while
+  # execute_code/terminal were already blocked.)
+  - fetch_url
+  # patch / process are exec-class tools the focused marketing operator never
+  # needs; block them so there is no non-MCP action path left.
+  - patch
+  - process
