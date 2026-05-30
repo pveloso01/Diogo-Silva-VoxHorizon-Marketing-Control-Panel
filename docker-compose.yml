@@ -29,6 +29,13 @@ services:
     image: ghcr.io/${GHCR_OWNER:-mogginglabs}/voxhorizon-worker:${WORKER_IMAGE_TAG:-latest}
     restart: unless-stopped
     logging: *default-logging
+    # Resource ceilings (8GB/2-core host). Caps the blast radius: a runaway
+    # transcode/render is OOM-killed in its own cgroup instead of starving the
+    # host (incl. sshd). pids_limit caps subprocess/fork leaks (yt-dlp/ffmpeg).
+    mem_limit: 2g
+    mem_reservation: 256m
+    cpus: "1.5"
+    pids_limit: 512
     # Production path: env file lives at the canonical absolute path on
     # the VPS (chmod 600, owned by the deploy user). Dev override:
     #   env_file: ./worker/.env
@@ -103,6 +110,9 @@ services:
     image: ghcr.io/${GHCR_OWNER:-mogginglabs}/voxhorizon-operator-daemon:${OPERATOR_DAEMON_IMAGE_TAG:-latest}
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 512m
+    cpus: "0.5"
+    pids_limit: 256
     env_file:
       - /opt/voxhorizon/.env
     expose:
@@ -159,6 +169,10 @@ services:
     image: ghcr.io/${GHCR_OWNER:-mogginglabs}/voxhorizon-web:${WEB_IMAGE_TAG:-latest}
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 1g
+    mem_reservation: 256m
+    cpus: "1.0"
+    pids_limit: 512
     env_file:
       - /opt/voxhorizon/.env
     expose:
@@ -184,6 +198,9 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 256
     depends_on:
       web:
         condition: service_healthy
