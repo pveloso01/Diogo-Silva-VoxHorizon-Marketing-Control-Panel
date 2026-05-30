@@ -118,7 +118,7 @@ FINALS_MODELS: dict[str, dict[str, str]] = {
     },
 }
 #: Default finals model label — the FREE one.
-DEFAULT_FINALS_LABEL = "gpt-image-2 (free)"
+DEFAULT_FINALS_LABEL = "nano-banana-2"
 
 #: Per-kind render parameters for the codex backend, mirroring the worker's
 #: SOP (``pipeline_tools._CONCEPT_PREVIEW`` / ``_FINAL``): which ratios to

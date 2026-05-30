@@ -63,7 +63,12 @@ const FINALS_MODEL_LABELS = Object.keys(FINALS_MODELS) as [
   keyof typeof FINALS_MODELS,
   ...(keyof typeof FINALS_MODELS)[],
 ];
-const DEFAULT_FINALS_LABEL: keyof typeof FINALS_MODELS = "gpt-image-2 (free)";
+// Default to the fast paid Kie model for FINALS. The free codex model renders
+// finals at ~3-5 min/image (HIGH quality), so a multi-concept batch cannot
+// finish inside the 600s render-tool window -- the call times out after ~one
+// concept and generation stalls. nano-banana-2 renders the whole batch in
+// seconds, reliably. IDEATION stays free codex (it tolerates multiple resumes).
+const DEFAULT_FINALS_LABEL: keyof typeof FINALS_MODELS = "nano-banana-2";
 
 const OperatorKickoffBody = z.object({
   instruction: z.string().trim().min(1, "instruction is required").max(5000),
