@@ -119,8 +119,10 @@ export function StageReview({ pipeline, initialWorkItem = null }: StageReviewPro
       title="Review"
       subtitle="Confirm picks, review costs, then approve to start generation."
       canContinue={false}
-      // The approval gate buttons drive the decision — there's no
-      // separate Continue CTA at the bottom of the shell.
+      // The approval gate buttons (Approve / Approve with changes / Reject)
+      // drive the decision; suppress the generic footer Continue CTA so there's
+      // no dead, permanently-disabled button beneath them.
+      hideContinue
       body={
         <div className="flex flex-col gap-6">
           {imagePickIds.length === 0 && videoPickIds.length === 0 ? (

@@ -10,6 +10,17 @@
 # The web service proxies API calls to worker over the internal network;
 # Caddy itself only speaks to web.
 
+# Default docker json-file log rotation, applied to every service via the
+# `*default-logging` anchor below. Without this the json-file driver grows
+# unbounded; a chatty service (e.g. Caddy's per-SSE-reconnect reverse_proxy
+# warnings) can fill the host disk and wedge the box (incl. sshd). 10m x 3 caps
+# each container at ~30MB of logs.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   worker:
     build:
@@ -17,6 +28,14 @@ services:
       dockerfile: Dockerfile
     image: ghcr.io/${GHCR_OWNER:-mogginglabs}/voxhorizon-worker:${WORKER_IMAGE_TAG:-latest}
     restart: unless-stopped
+    logging: *default-logging
+    # Resource ceilings (8GB/2-core host). Caps the blast radius: a runaway
+    # transcode/render is OOM-killed in its own cgroup instead of starving the
+    # host (incl. sshd). pids_limit caps subprocess/fork leaks (yt-dlp/ffmpeg).
+    mem_limit: 2g
+    mem_reservation: 256m
+    cpus: "1.5"
+    pids_limit: 512
     # Production path: env file lives at the canonical absolute path on
     # the VPS (chmod 600, owned by the deploy user). Dev override:
     #   env_file: ./worker/.env
@@ -90,6 +109,10 @@ services:
       dockerfile: Dockerfile
     image: ghcr.io/${GHCR_OWNER:-mogginglabs}/voxhorizon-operator-daemon:${OPERATOR_DAEMON_IMAGE_TAG:-latest}
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    cpus: "0.5"
+    pids_limit: 256
     env_file:
       - /opt/voxhorizon/.env
     expose:
@@ -145,6 +168,11 @@ services:
         NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
     image: ghcr.io/${GHCR_OWNER:-mogginglabs}/voxhorizon-web:${WEB_IMAGE_TAG:-latest}
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    mem_reservation: 256m
+    cpus: "1.0"
+    pids_limit: 512
     env_file:
       - /opt/voxhorizon/.env
     expose:
@@ -169,6 +197,10 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 256
     depends_on:
       web:
         condition: service_healthy

@@ -285,6 +285,20 @@ jobs:
             echo "migration gate: schema is at/above the required floor; proceeding."
             # === end pre-deploy migration gate =====================================
             docker compose pull
+            # Caddy recreate-race guard. `docker compose up` recreates the caddy
+            # container while the OLD one still holds host :80/:443, so the new
+            # one fails to bind ("port is already allocated"); with
+            # restart:unless-stopped the loser then crash-loops, pinning the host
+            # CPU until even sshd cannot respond (a full prod outage we hit once).
+            # 1) Remove any leftover RENAMED caddy containers from a prior
+            #    interrupted roll (the `<hash>_voxhorizon-caddy-1` orphans that
+            #    keep holding the ports). The compose-managed `voxhorizon-caddy-1`
+            #    is NOT matched by the leading-underscore filter, so this only
+            #    reaps orphans.
+            docker ps -aq --filter "name=_voxhorizon-caddy-1" | xargs -r docker rm -f || true
+            # 2) Stop the managed caddy so the host ports are free BEFORE the
+            #    recreate binds them (a few seconds of edge downtime per deploy).
+            docker compose stop caddy || true
             docker compose up -d --remove-orphans
             # Wait for each service to report healthy before pruning the
             # old images. Up to ~120s per service -- matches the slowest

@@ -16,6 +16,10 @@ export type StageShellProps = {
   canContinue: boolean;
   /** Invoked when the operator hits the CTA. */
   onContinue?: () => void;
+  /** Hide the footer Continue button entirely. For stages that drive their own
+   *  primary action from the body (e.g. Review's approve/reject gate), where a
+   *  generic permanently-disabled "Continue" would be dead, confusing UI. */
+  hideContinue?: boolean;
   /** Optional secondary slot rendered next to the primary CTA (e.g. cancel). */
   secondaryAction?: ReactNode;
   /** Override the outer wrapper classes. */
@@ -37,6 +41,7 @@ export function StageShell({
   continueLabel = "Continue",
   canContinue,
   onContinue,
+  hideContinue = false,
   secondaryAction,
   className,
 }: StageShellProps) {
@@ -52,17 +57,25 @@ export function StageShell({
         {subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
       </header>
       <div className="px-5 pb-6 sm:px-6">{body}</div>
-      <footer className="flex flex-col-reverse items-stretch justify-end gap-2 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:px-6">
-        {secondaryAction}
-        <Button
-          type="button"
-          disabled={!canContinue}
-          onClick={onContinue}
-          aria-disabled={!canContinue}
-        >
-          {continueLabel}
-        </Button>
-      </footer>
+      {/* Render the footer unless there's nothing to put in it. `hideContinue`
+          drops the primary CTA for stages that drive their own action from the
+          body (e.g. Review's approve/reject gate); a secondaryAction can still
+          keep the footer. */}
+      {!hideContinue || secondaryAction ? (
+        <footer className="flex flex-col-reverse items-stretch justify-end gap-2 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+          {secondaryAction}
+          {!hideContinue ? (
+            <Button
+              type="button"
+              disabled={!canContinue}
+              onClick={onContinue}
+              aria-disabled={!canContinue}
+            >
+              {continueLabel}
+            </Button>
+          ) : null}
+        </footer>
+      ) : null}
     </section>
   );
 }
