@@ -19,18 +19,28 @@ describe("StageShell", () => {
   });
 
   it("renders the default Continue label", () => {
-    render(<StageShell title="X" canContinue body={null} />);
+    render(<StageShell title="X" canContinue onContinue={() => {}} body={null} />);
     expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
   });
 
   it("uses the custom continueLabel when provided", () => {
-    render(<StageShell title="X" canContinue continueLabel="Next" body={null} />);
+    render(
+      <StageShell title="X" canContinue continueLabel="Next" onContinue={() => {}} body={null} />,
+    );
     expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
   });
 
   it("disables the CTA when canContinue is false", () => {
-    render(<StageShell title="X" canContinue={false} body={null} />);
+    render(<StageShell title="X" canContinue={false} onContinue={() => {}} body={null} />);
     expect(screen.getByRole("button")).toBeDisabled();
+  });
+
+  it("renders NO Continue button when onContinue is omitted", () => {
+    // Stages that drive their own action from the body (e.g. Review's
+    // approve/reject gate) pass no onContinue; the shell must not show a dead,
+    // permanently-disabled Continue button below them.
+    render(<StageShell title="X" canContinue={false} body={<p>body</p>} />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("calls onContinue when the CTA is clicked", async () => {

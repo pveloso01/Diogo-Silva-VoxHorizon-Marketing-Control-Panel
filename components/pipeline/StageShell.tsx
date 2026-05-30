@@ -52,17 +52,25 @@ export function StageShell({
         {subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
       </header>
       <div className="px-5 pb-6 sm:px-6">{body}</div>
-      <footer className="flex flex-col-reverse items-stretch justify-end gap-2 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:px-6">
-        {secondaryAction}
-        <Button
-          type="button"
-          disabled={!canContinue}
-          onClick={onContinue}
-          aria-disabled={!canContinue}
-        >
-          {continueLabel}
-        </Button>
-      </footer>
+      {/* Only render the footer when there's actually something to show. A
+          stage that drives its own action from the body (e.g. Review's
+          approve/reject gate) passes no `onContinue`, so we must NOT render a
+          dead, permanently-disabled "Continue" button below it. */}
+      {onContinue || secondaryAction ? (
+        <footer className="flex flex-col-reverse items-stretch justify-end gap-2 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:px-6">
+          {secondaryAction}
+          {onContinue ? (
+            <Button
+              type="button"
+              disabled={!canContinue}
+              onClick={onContinue}
+              aria-disabled={!canContinue}
+            >
+              {continueLabel}
+            </Button>
+          ) : null}
+        </footer>
+      ) : null}
     </section>
   );
 }
