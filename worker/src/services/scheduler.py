@@ -959,6 +959,53 @@ async def run_work_item_watchdog_once(
 
 
 # ---------------------------------------------------------------------------
+# Temp-dir reaper (post-incident disk hygiene)
+# ---------------------------------------------------------------------------
+
+
+async def run_temp_reaper_once(settings: Settings | None = None) -> dict[str, int]:
+    """Delete stale ``vox-*`` temp entries left by yt-dlp/ffmpeg/probe runs.
+
+    Several worker subprocess helpers ``mkdtemp(prefix="vox-...")`` under the
+    system tmp dir and intentionally leave the artifacts for the caller. Over a
+    long uptime these accumulate and can slowly fill the host disk. This sweep
+    removes any ``vox-*`` entry whose mtime is older than
+    ``scheduler_temp_reaper_max_age_s`` (recent ones -- possibly in active use --
+    are always kept). Returns ``{"removed": n}``. Filesystem work runs in a
+    thread so the event loop stays responsive.
+    """
+    settings = settings or get_settings()
+    max_age = settings.scheduler_temp_reaper_max_age_s
+
+    def _reap() -> int:
+        import shutil
+        import tempfile
+        import time
+        from pathlib import Path
+
+        root = Path(tempfile.gettempdir())
+        cutoff = time.time() - max_age
+        removed = 0
+        for entry in root.glob("vox-*"):
+            try:
+                if entry.stat().st_mtime >= cutoff:
+                    continue  # recent -- may be in active use
+                if entry.is_dir():
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    entry.unlink(missing_ok=True)
+                removed += 1
+            except OSError:
+                continue  # best-effort; a racing delete / perms never crashes the sweep
+        return removed
+
+    removed = await asyncio.to_thread(_reap)
+    if removed:
+        log.info("temp_reaper_swept", removed=removed, max_age_s=max_age)
+    return {"removed": removed}
+
+
+# ---------------------------------------------------------------------------
 # Loop supervisor + lifecycle
 # ---------------------------------------------------------------------------
 
@@ -1159,6 +1206,20 @@ def start_scheduler(settings: Settings | None = None) -> Scheduler:
             name="scheduler:worker_stage_drain",
         ),
     ]
+    # Post-incident hardening: periodic temp-dir reaper (vox-* in /tmp). Gated
+    # on a positive interval so it can be disabled via env.
+    if settings.scheduler_temp_reaper_interval_s > 0:
+        tasks.append(
+            loop.create_task(
+                _interval_loop(
+                    "temp_reaper",
+                    float(settings.scheduler_temp_reaper_interval_s),
+                    lambda: run_temp_reaper_once(settings),
+                    initial_delay_s=45.0,
+                ),
+                name="scheduler:temp_reaper",
+            )
+        )
     log.info("scheduler_started", jobs=len(tasks))
     return Scheduler(tasks)
 
@@ -1175,6 +1236,7 @@ __all__ = [
     "run_observability_once",
     "run_outbox_drain_once",
     "run_reconciliation_once",
+    "run_temp_reaper_once",
     "run_work_item_watchdog_once",
     "run_worker_stage_drain_once",
     "start_scheduler",

@@ -168,6 +168,17 @@ class Settings(BaseSettings):
     # is fine: ideation/generation are kicked by a manager gate, not high-volume.
     scheduler_worker_stage_interval_s: int = 5
 
+    # === Post-incident hardening: temp-dir reaper ===
+    # Worker subprocess helpers (yt-dlp / ffmpeg / probes) mkdtemp() under the
+    # system tmp dir with a ``vox-`` prefix; several callsites intentionally
+    # leave the files for the caller, so a long-lived worker accumulates them.
+    # This periodic reaper deletes ``vox-*`` temp entries older than the max age
+    # so a heavy video run can't slowly fill the host disk between deploys (the
+    # deploy-recreate clears /tmp, but uptime is unbounded). Set the interval to
+    # 0 to disable.
+    scheduler_temp_reaper_interval_s: int = 3_600
+    scheduler_temp_reaper_max_age_s: int = 21_600  # 6h
+
     # Slack approval fan-out (HI-17, post-Slack-pivot 2026-05-18). The worker
     # posts high-urgency approval notifications to a single Slack channel via
     # chat.postMessage. The bot token is sourced at deploy time from
