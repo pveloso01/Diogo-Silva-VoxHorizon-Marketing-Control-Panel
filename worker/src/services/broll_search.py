@@ -145,6 +145,15 @@ async def scrape_yt_shorts(
             proc.communicate(), timeout=timeout_s
         )
     except asyncio.TimeoutError as e:
+        # Kill the orphaned yt-dlp (and its ffmpeg / network children) before
+        # raising. Without this the process keeps running detached after we stop
+        # awaiting it; repeated scrape timeouts then pile up processes + FDs and
+        # (with no host-side PID cap) can exhaust the box.
+        try:
+            proc.kill()
+            await proc.wait()
+        except Exception:  # noqa: BLE001 -- best-effort reap; never mask the timeout
+            pass
         raise RuntimeError(
             f"yt-dlp timed out after {timeout_s:.0f}s for query: {query!r}"
         ) from e

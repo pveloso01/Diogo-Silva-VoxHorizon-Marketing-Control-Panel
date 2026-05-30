@@ -324,6 +324,27 @@ async def test_chat_timeout_classifies_as_hermes_crashed(monkeypatch: pytest.Mon
     assert result.error_kind == "hermes_crashed"
 
 
+async def test_chat_timeout_kills_orphaned_exec(monkeypatch: pytest.MonkeyPatch):
+    """On timeout the daemon best-effort pkills the wedged `hermes chat` so a
+    runaway render can't keep burning the operator container's resources."""
+
+    class _HangThenRecord(FakeContainer):
+        def exec_run(self, argv, demux: bool = False, **_kw):  # noqa: ANN001
+            self.exec_calls.append(list(argv))
+            if "pkill" in argv:  # the cleanup call returns fast
+                return FakeExecResult(exit_code=0, output=(b"", b""))
+            import time as _t  # the chat call hangs past the timeout
+
+            _t.sleep(1)
+            return FakeExecResult(exit_code=0, output=(b"", b""))
+
+    container = _HangThenRecord()
+    hx = HermesExec(container_name="op", client=FakeDockerClient(container=container))
+    result = await hx.chat("i", session_id="s", timeout_s=0)
+    assert result.error_kind == "hermes_crashed"
+    assert any("pkill" in call for call in container.exec_calls)
+
+
 # ---------------------------------------------------------------------------
 # container_status
 # ---------------------------------------------------------------------------

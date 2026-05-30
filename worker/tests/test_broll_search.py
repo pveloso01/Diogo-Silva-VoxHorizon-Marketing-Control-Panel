@@ -202,6 +202,8 @@ def test_scrape_yt_shorts_raises_on_timeout(
 ) -> None:
     from src.services import broll_search
 
+    captured: dict[str, MagicMock] = {}
+
     async def fake_exec(*_a, **_k):
         proc = MagicMock()
         proc.returncode = 0
@@ -211,6 +213,8 @@ def test_scrape_yt_shorts_raises_on_timeout(
             return (b"", b"")
 
         proc.communicate = slow
+        proc.wait = AsyncMock()
+        captured["proc"] = proc
         return proc
 
     monkeypatch.setattr(broll_search.asyncio, "create_subprocess_exec", fake_exec)
@@ -223,6 +227,9 @@ def test_scrape_yt_shorts_raises_on_timeout(
             )
         )
     assert "timed out" in str(exc.value)
+    # The orphaned yt-dlp must be killed + reaped, not left running.
+    captured["proc"].kill.assert_called_once()
+    captured["proc"].wait.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

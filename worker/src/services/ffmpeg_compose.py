@@ -175,6 +175,7 @@ async def compose(
     fps: int = DEFAULT_FPS,
     music_gain_db: float = DEFAULT_MUSIC_GAIN_DB,
     ffmpeg_bin: str | None = None,
+    timeout_s: float = 600.0,
 ) -> ComposeResult:
     """Compose ``clips`` (+ optional voiceover / music / logo) into one MP4.
 
@@ -219,7 +220,17 @@ async def compose(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    _out_b, err_b = await proc.communicate()
+    try:
+        _out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
+    except asyncio.TimeoutError as e:
+        # A wedged ffmpeg would otherwise hang the awaiting work_item forever and
+        # keep burning CPU. Kill it + reap before surfacing the failure.
+        try:
+            proc.kill()
+            await proc.wait()
+        except Exception:  # noqa: BLE001 -- best-effort reap
+            pass
+        raise ComposeError(f"ffmpeg timed out after {timeout_s:.0f}s") from e
     stderr = err_b.decode("utf-8", errors="replace")
 
     if proc.returncode != 0:
