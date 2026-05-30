@@ -52,7 +52,18 @@ class Settings(BaseSettings):
     # --- The Hermes container -------------------------------------------------
     # The sibling container the daemon execs into. Matches the live container
     # name on the VPS; tests override.
-    hermes_container_name: str = "hermes-agent-operator"
+    #
+    # Read from env ``HERMES_OPERATOR_CONTAINER_NAME`` (the var compose sets for
+    # this service), NOT ``HERMES_CONTAINER_NAME`` -- the latter is the worker's
+    # legacy-bridge var (= ``hermes-agent-ekko``) and lives in the SHARED
+    # ``/opt/voxhorizon/.env`` the daemon also loads. Binding to the field name
+    # made the daemon read that shared var and exec every dispatch into the
+    # un-hardened legacy Ekko container instead of the operator. The explicit
+    # alias decouples the two so the operator daemon always targets the operator.
+    hermes_container_name: str = Field(
+        "hermes-agent-operator",
+        validation_alias="HERMES_OPERATOR_CONTAINER_NAME",
+    )
 
     # Path inside the Hermes container that holds ``auth.json``. Hermes' canonical
     # token store is ``$HERMES_HOME/auth.json``; the operator's compose entry
