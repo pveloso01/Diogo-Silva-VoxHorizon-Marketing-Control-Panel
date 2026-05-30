@@ -171,6 +171,42 @@ def test_compose_nonzero_exit_raises(
         asyncio.run(compose(clips=[clip], output=tmp_path / "o.mp4"))
 
 
+def test_compose_kills_ffmpeg_on_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clip = tmp_path / "c.mp4"
+    clip.write_bytes(b"x")
+    monkeypatch.setattr(comp_mod.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+
+    state: dict = {"killed": False, "waited": False}
+
+    class _HangProc:
+        returncode = None
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            await asyncio.sleep(10)
+            return (b"", b"")
+
+        def kill(self) -> None:
+            state["killed"] = True
+
+        async def wait(self) -> int:
+            state["waited"] = True
+            return -9
+
+    async def fake_exec(*argv, **kwargs):  # noqa: ANN002, ANN003
+        return _HangProc()
+
+    monkeypatch.setattr(comp_mod.asyncio, "create_subprocess_exec", fake_exec)
+    with pytest.raises(ComposeError, match="timed out"):
+        asyncio.run(
+            compose(clips=[clip], output=tmp_path / "o.mp4", timeout_s=0.01)
+        )
+    # A wedged ffmpeg must be killed + reaped, not left hanging the work_item.
+    assert state["killed"] is True
+    assert state["waited"] is True
+
+
 def test_compose_missing_input_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -304,6 +304,20 @@ class HermesExec:
                 timeout=timeout_s,
             )
         except asyncio.TimeoutError:
+            # The blocking exec_run can't be cancelled, so the `hermes chat`
+            # keeps running inside the operator container after we stop awaiting
+            # it -- a wedged render would otherwise burn CPU/RAM there and stack
+            # with the next claim's chat. Best-effort kill it. Single-daemon
+            # drains serially, so this dispatch's chat is the only `hermes chat`
+            # process in the container; pkill -f targets exactly it. pkill
+            # (procps-ng) ships in the operator image; failure is swallowed so
+            # we never mask the timeout result.
+            try:
+                await asyncio.to_thread(
+                    container.exec_run, ["pkill", "-TERM", "-f", "hermes chat"]
+                )
+            except Exception:  # noqa: BLE001 -- best-effort reap
+                pass
             return ChatResult(
                 exit_code=-1,
                 stdout_tail=f"timeout after {timeout_s}s",
