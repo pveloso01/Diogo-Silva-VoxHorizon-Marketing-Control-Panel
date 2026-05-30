@@ -35,11 +35,18 @@ describe("StageShell", () => {
     expect(screen.getByRole("button")).toBeDisabled();
   });
 
-  it("renders NO Continue button when onContinue is omitted", () => {
+  it("shows a disabled Continue by default even without onContinue", () => {
+    // StagePlaceholder relies on this: a stage with no handler still shows a
+    // disabled Continue as the "gate not satisfied yet" affordance.
+    render(<StageShell title="X" canContinue={false} body={null} />);
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+  });
+
+  it("renders NO Continue button when hideContinue is set", () => {
     // Stages that drive their own action from the body (e.g. Review's
-    // approve/reject gate) pass no onContinue; the shell must not show a dead,
+    // approve/reject gate) pass hideContinue; the shell must not show a dead,
     // permanently-disabled Continue button below them.
-    render(<StageShell title="X" canContinue={false} body={<p>body</p>} />);
+    render(<StageShell title="X" canContinue={false} hideContinue body={<p>body</p>} />);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
