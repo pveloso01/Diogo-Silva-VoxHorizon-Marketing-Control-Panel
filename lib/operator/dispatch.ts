@@ -52,7 +52,7 @@ export function operatorInstruction(
       return `You are the operator for pipeline ${pipelineId}. ${ask} Read the pipeline state, author the image brief, and stop for the manager's review.`;
     }
     case "ideation":
-      return `The manager approved the brief for pipeline ${pipelineId}. Author the concept previews (one render call = one spend gate) and stop for the manager's picks.`;
+      return `The manager approved the brief for pipeline ${pipelineId}. Render ALL concept previews NOW in one batch: call the pipeline_operator_render tool with kind "concept_preview" and no items. Rendering is FREE ($0, gpt-image-2) and ungated -- do NOT wait for any spend approval, and do NOT just describe the concepts in text. After the renders land, call pipeline_operator_signal and STOP for the manager's picks. Do NOT advance the stage yourself.`;
     case "generation":
       return `The manager picked the concepts for pipeline ${pipelineId}. Render the final assets for the picked concepts, then stop — the pipeline finishes itself.`;
     case "review":
