@@ -3,8 +3,8 @@
 -- FIX: generation auto-advance fired after the FIRST rendered final, abandoning
 -- the rest of generation.
 --
--- THE BUG. ``pipeline_events_auto_advance_done()`` (0024 -> 0046 -> 0051 -> 0054)
--- closes ``generation`` with the heuristic
+-- THE BUG. ``pipeline_events_auto_advance_done()`` (0024 -> 0046 -> 0051 -> 0054
+-- -> 0056) closes ``generation`` with
 --     v_expected := greatest(v_queued, v_running);
 --     advance when (v_done + v_error) >= v_expected and v_done >= 1.
 -- It assumes a BATCH renderer that emits every task_queued/task_running up front
@@ -12,10 +12,9 @@
 -- OPERATOR renders finals SERIALLY via codex -- running#1, done#1, running#2,
 -- done#2, ... -- and emits NO up-front task_queued. So at the first done,
 -- greatest(queued=0, running=1) == 1, (done=1) >= 1, and the pipeline advanced
--- to creative_qa after a SINGLE asset. The remaining picked concepts' finals
--- never entered generation (verified live on pipeline e087bbe1: 4 picks => 8
--- finals expected, advanced after rendering 1; only concept #1's 1x1+9x16 made
--- it, and the creative_qa gate seeded only those two).
+-- to creative_qa after a SINGLE asset, seeding the QA gate for only that one
+-- final (verified live on e087bbe1: 4 picks => 8 finals expected, advanced after
+-- rendering 1).
 --
 -- THE FIX. Floor v_expected at the KNOWN plan size: each picked IMAGE concept
 -- yields 2 finals (1x1 + 9x16 -- mirrors ``_KIND_PARAMS['final']['ratios']`` in
@@ -23,14 +22,19 @@
 -- ever RAISES v_expected, so a batch renderer (Ekko/Kie, which emit up-front)
 -- reaches its queued/running count exactly as before, and video / manual
 -- pipelines (no image picks -> floor 0) are unaffected. A serial operator render
--- now waits for all planned finals before the close fires, so every final exists
--- when the creative_qa gate is seeded.
+-- now waits for all planned IMAGE finals before the close fires, so every final
+-- exists when the creative_qa gate is seeded.
 --
--- Everything else in the function -- the cutoff, the all-failed guard, the
--- idempotent already-advanced check, the image+video QA-gate seeding, the
--- stage_advanced emission, and the operator_dispatch/worker_qa producer enqueue
--- -- is byte-identical to 0054. Forward-only create-or-replace; the existing
--- trigger keeps calling it. search_path re-pinned per the 0029 convention.
+-- BASED ON 0056 (NOT 0054): this create-or-replace reproduces the FULL 0056
+-- body -- crucially the FIX-E failed-VIDEO seed (a video render that errored
+-- mid-substage is seeded as a non-blocking 'skipped' QA row) -- and adds ONLY
+-- the v_pick_image floor. (An earlier draft based on 0054 silently reverted
+-- FIX-E; do NOT regress it.) The image seed, captioned-video seed, all-failed
+-- guard, idempotent already-advanced check, stage_advanced emission, and the
+-- operator_dispatch/worker_qa producer enqueue are byte-identical to 0056.
+--
+-- Forward-only create-or-replace; the existing trigger keeps calling it.
+-- search_path re-pinned per the 0029 convention.
 -- ----------------------------------------------------------------------------
 
 create or replace function pipeline_events_auto_advance_done()
@@ -87,17 +91,16 @@ begin
      and id <> v_cutoff_id
      and created_at >= v_cutoff_ts;
 
-  -- Plan-size floor (0059): each picked image concept yields 2 finals
-  -- (1x1 + 9x16). The serial operator render emits no up-front task_queued, so
-  -- without this floor greatest(queued,running) == 1 at the first done and the
-  -- close fired after a single asset. picks->'image' is null for video/manual
-  -- pipelines -> coalesce -> 0 -> floor inert (falls back to queued/running).
+  -- 0059 plan-size floor: each picked IMAGE concept yields 2 finals (1x1 + 9x16).
+  -- The operator renders serially with no up-front task_queued, so without this
+  -- greatest(queued,running)=1 at the first done and the close fired after one
+  -- asset. Inert when there are no image picks (video/manual -> 0).
   select coalesce(jsonb_array_length(picks->'image'), 0) into v_pick_image
     from pipelines
    where id = new.pipeline_id;
 
   -- Closure heuristic (Ekko emits queued+running+done; operator emits
-  -- running+done serially -> floored at the picked-concept plan size).
+  -- running+done serially -> floored at the picked image-concept plan size).
   v_expected := greatest(
     coalesce(v_queued, 0),
     coalesce(v_running, 0),
@@ -144,6 +147,34 @@ begin
       on vc.brief_id = p.video_brief_id
      and vc.status = 'captioned'
      and vc.deleted_at is null
+   where p.id = new.pipeline_id
+  on conflict (creative_id, stage) do nothing;
+
+  -- FIX-E (preserved from 0056): seed each FAILED video creative as a VISIBLE,
+  -- NON-BLOCKING 'skipped' QA row so a billed render that errored mid-substage
+  -- (never reached 'captioned') is surfaced in the rollup instead of silently
+  -- dropped, WITHOUT deadlocking the gate (a 'failed' row would be unclearable).
+  insert into creative_stage_state (pipeline_id, creative_id, stage, status, summary)
+  select distinct p.id, vc.id, 'creative_qa'::creative_stage_enum, 'skipped'::stage_state_enum,
+         jsonb_build_object(
+           'reason', 'generation_render_failed',
+           'detail', 'video render failed mid-substage during generation and never '
+                     || 'reached captioned; skipped from the QA gate (not a '
+                     || 'deliverable) and not shipped, surfaced here so the failed '
+                     || '(billed) render is visible to the manager, not silently dropped'
+         )
+    from pipelines p
+    join video_creatives vc
+      on vc.brief_id = p.video_brief_id
+     and vc.deleted_at is null
+    join pipeline_events ev
+      on ev.pipeline_id = p.id
+     and ev.kind = 'task_error'
+     and ev.stage = 'generation'
+     and ev.id <> v_cutoff_id
+     and ev.created_at >= v_cutoff_ts
+     and ev.payload->>'kind' = 'video'
+     and ev.payload->>'creative_id' = vc.id::text
    where p.id = new.pipeline_id
   on conflict (creative_id, stage) do nothing;
 
