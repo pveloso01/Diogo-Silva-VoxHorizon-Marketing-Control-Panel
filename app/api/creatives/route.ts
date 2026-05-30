@@ -52,6 +52,11 @@ export async function GET(req: NextRequest) {
       .from("creatives")
       .select("*")
       .eq("brief_id", briefId)
+      // Exclude soft-deleted rows: the ideation grid must show only live
+      // concept previews. A re-dispatch supersedes a prior render by
+      // soft-deleting the stale creatives; without this filter they linger as
+      // "No render yet" blank cards alongside the real ones.
+      .is("deleted_at", null)
       .order("created_at", { ascending: true });
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
