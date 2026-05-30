@@ -1358,6 +1358,47 @@ def test_render_deterministic_skips_already_rendered(
     assert [c["concept"] for c in creatives] == ["savings__c"]
 
 
+def test_render_deterministic_ignores_soft_deleted(
+    client: TestClient,
+    tools_sb: _ToolsSupabase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A soft-deleted creative must NOT count as already-rendered.
+
+    Regression: a soft-deleted final used to satisfy the idempotent-resume
+    'done' check, so re-rendering an archived/superseded concept was skipped
+    forever (it stalled the e087bbe1 generation recovery).
+    """
+    tools_sb.pipeline_row = _pipeline_row(
+        config_draft={"concepts": [{"concept": "before_after__a", "prompt": "pa"}]}
+    )
+    # The only stored creative for the concept is SOFT-DELETED -> must be ignored.
+    tools_sb.creatives_rows = [
+        {
+            "id": "cr-a",
+            "brief_id": "ib-1",
+            "concept": "before_after__a",
+            "ratio": "1x1",
+            "version": "v0.ideation",
+            "file_path_supabase": "ib-1/a.png",
+            "deleted_at": "2026-05-30T00:00:00Z",
+        }
+    ]
+    _use_stub_kie(monkeypatch)
+
+    resp = client.post(
+        "/work/pipeline/tools/render",
+        headers=_auth(),
+        json={"pipeline_id": "p-1", "kind": "concept_preview"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["skipped"] == []  # soft-deleted row is not counted as done
+    assert len(body["renders"]) == 1
+    creatives = [d for n, d in tools_sb.inserts if n == "creatives"]
+    assert [c["concept"] for c in creatives] == ["before_after__a"]
+
+
 def test_render_deterministic_empty_plan_is_clean_noop(
     client: TestClient,
     tools_sb: _ToolsSupabase,
