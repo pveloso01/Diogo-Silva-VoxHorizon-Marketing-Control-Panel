@@ -1,10 +1,9 @@
 "use client";
 
-import { Lock } from "lucide-react";
+import { ChevronRight, Lock } from "lucide-react";
 
 import { SubStatePill } from "@/components/review/SubStatePill";
 import { RollupChip } from "@/components/review/RollupChip";
-import { Button } from "@/components/ui/button";
 import {
   buildGridRows,
   rollupForStage,
@@ -109,7 +108,19 @@ export function CreativeReviewGrid({
                 key={row.creative.id}
                 data-testid={`grid-row-${row.creative.id}`}
                 data-killed={isKilled ? "true" : undefined}
-                className={cn("border-b border-border last:border-0", isKilled && "opacity-50")}
+                tabIndex={0}
+                aria-label={`Review ${row.creative.concept ?? "creative"}`}
+                onClick={() => onOpenCreative?.(row.creative.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onOpenCreative?.(row.creative.id);
+                  }
+                }}
+                className={cn(
+                  "cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  isKilled && "opacity-50",
+                )}
               >
                 <th scope="row" className="px-3 py-2 text-left font-medium">
                   <span className="block max-w-[16rem] truncate">
@@ -148,16 +159,15 @@ export function CreativeReviewGrid({
                     </td>
                   );
                 })}
+                {/* Affordance only — the whole row is the click target (mouse +
+                    keyboard via the tr's onClick/onKeyDown). aria-hidden since the
+                    row carries the accessible "Review ..." label. */}
                 <td className="px-3 py-2 text-right">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
+                  <ChevronRight
+                    aria-hidden="true"
                     data-testid={`grid-open-${row.creative.id}`}
-                    onClick={() => onOpenCreative?.(row.creative.id)}
-                  >
-                    Review
-                  </Button>
+                    className="inline size-4 text-muted-foreground"
+                  />
                 </td>
               </tr>
             );
