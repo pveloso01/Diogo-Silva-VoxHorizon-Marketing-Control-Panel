@@ -20,6 +20,11 @@ afterEach(() => vi.restoreAllMocks());
 describe("getReviewBundle", () => {
   it("projects creatives + states + copy + signed urls", async () => {
     currentSupabase = mockClient({
+      pipelines: {
+        select: {
+          single: { data: { format_choice: "image", image_brief_id: "ib1" }, error: null },
+        },
+      },
       creatives: {
         select: {
           data: [{ id: "a", concept: "A", status: "draft", file_path_supabase: "a.png" }],
@@ -73,7 +78,12 @@ describe("getReviewBundle", () => {
   it("unions BOTH tracks for a format=both pipeline", async () => {
     currentSupabase = mockClient({
       pipelines: {
-        select: { single: { data: { format_choice: "both", video_brief_id: "vb1" }, error: null } },
+        select: {
+          single: {
+            data: { format_choice: "both", image_brief_id: "ib1", video_brief_id: "vb1" },
+            error: null,
+          },
+        },
       },
       creatives: {
         select: {

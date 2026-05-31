@@ -46,10 +46,20 @@ describe("issueSessionToken + verifySessionToken", () => {
   });
 
   it("rejects a tampered signature", async () => {
-    const token = await issueSessionToken("a@b.c");
-    // Flip the last character of the signature part.
-    const flipped = token.slice(0, -1) + (token.endsWith("A") ? "B" : "A");
-    expect(await verifySessionToken(flipped)).toBeNull();
+    // Fixed clock so the issued token (and thus this test) is deterministic.
+    const now = 1_700_000_000;
+    const token = await issueSessionToken("a@b.c", { nowSeconds: now });
+    const dot = token.indexOf(".");
+    const sig = token.slice(dot + 1);
+    // Flip the FIRST signature char, not the last. A 32-byte HMAC base64url-
+    // encodes to 43 chars whose FINAL char carries 2 unused padding bits, so an
+    // A<->B flip there can leave the decoded signature unchanged -> verify still
+    // succeeds -> intermittent failure (the old `token.slice(0, -1)` flake). The
+    // first char's 6 bits all land in the decoded bytes, so flipping it always
+    // changes the signature.
+    const flippedFirst = sig[0] === "A" ? "B" : "A";
+    const flipped = token.slice(0, dot + 1) + flippedFirst + sig.slice(1);
+    expect(await verifySessionToken(flipped, { nowSeconds: now })).toBeNull();
   });
 
   it("rejects a tampered payload (signature no longer matches)", async () => {
