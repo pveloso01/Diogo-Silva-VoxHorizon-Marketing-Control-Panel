@@ -316,6 +316,7 @@ export default async function PipelineDetailPage({ params }: { params: Promise<{
                 creatives={reviewBundle.creatives}
                 states={reviewBundle.states}
                 signedUrls={reviewBundle.signedUrls}
+                advisories={reviewBundle.advisories}
               />
             ) : pipeline.status === "copy" && reviewBundle ? (
               <StageCopy

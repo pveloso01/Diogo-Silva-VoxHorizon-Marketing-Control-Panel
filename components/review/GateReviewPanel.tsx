@@ -7,104 +7,116 @@ import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CreativeReviewGrid } from "@/components/review/CreativeReviewGrid";
 import { SubStatePill } from "@/components/review/SubStatePill";
+import type { GateAdvisory } from "@/lib/review/fetch";
 import {
   buildGridRows,
   rollupCleared,
   rollupForStage,
+  type CreativeStage,
   type GridCreative,
   type StageStateRow,
 } from "@/lib/review/grid";
 import { cn } from "@/lib/utils";
 
 /**
- * ComplianceOverrideGate (#360, P4.5): the HARD compliance block + the audited
- * per-creative override.
+ * GateReviewPanel: ONE consistent manager-clear UI for the per-creative gate
+ * stages whose operator run leaves a soft, non-terminal state.
  *
- * Compliance is a hard gate: the dashboard cannot advance while any creative
- * is `failed` without an audited override. Per blocked creative the manager can
- * open an override drawer requiring (a) a written justification and (b) a
- * type-to-confirm ("OVERRIDE") so the release is deliberate; the action POSTs to
- * `/api/pipelines/[id]/compliance/override` (owned by another agent) which
- * writes `overridden` + the required note (append-only audit). Past overrides
- * are shown inline as the permanent audit display.
- *
- * A `needs_review` verdict (the engine found no hard blocks but wants a manager
- * sign-off) lands as a `pending` unit. Those are surfaced in a separate "needs
- * review (advisory)" list with a lighter "Review & accept" action: the same
- * override endpoint, but only the written justification is required (no
- * type-to-confirm, since nothing is being force-released). Without this, a
- * needs_review unit was a dead-end: not `failed` (so no override button) yet
- * not cleared (so the gate stays shut).
- *
- * The Continue button is disabled until the compliance rollup clears (no failed
- * OR pending units remain) via the single-source `rollupCleared` predicate,
- * matching the server `pipeline_rollup_cleared` gate by construction.
+ * Operator-driven gates produce "a human should look" verdicts that hold the
+ * gate but had no manager-clear affordance:
+ *   - `compliance_review` -> `pending` (needs_review: 0 hard blocks, advisory
+ *     findings),
+ *   - `spec_validation`   -> `in_progress` (a `warn` placement: valid crop, the
+ *     operator asks the manager to eyeball it).
+ * Both were dead-ends (not `failed`, so the old compliance-only override never
+ * surfaced them; not cleared, so the gate stayed shut). This panel surfaces the
+ * per-creative advisories (so the accept is informed, not a rubber-stamp) and
+ * the two manager actions, both posting to the unified
+ * `POST /api/pipelines/[id]/gate/decision`:
+ *   - "Review & accept" (soft pending/in_progress) -> status `passed`,
+ *   - "Override"        (hard `failed`)            -> status `overridden`.
+ * Continue is gated on the single-source `rollupCleared` (matching the server),
+ * so a held unit keeps it disabled.
  */
-export type ComplianceOverrideGateProps = {
+export type GateReviewPanelProps = {
   pipelineId: string;
+  /** Which per-creative gate this panel drives. */
+  stage: Extract<CreativeStage, "compliance_review" | "spec_validation">;
   creatives: GridCreative[];
   states: StageStateRow[];
+  /** Per-creative advisories (compliance findings / spec warn notes). */
+  advisories?: GateAdvisory[];
   onOpenCreative?: (creativeId: string) => void;
-  /** Advance to copy once compliance clears. */
   onContinue?: () => void;
 };
 
 const CONFIRM_WORD = "OVERRIDE";
 
-export function ComplianceOverrideGate({
+const STAGE_NOUN: Record<GateReviewPanelProps["stage"], string> = {
+  compliance_review: "Compliance",
+  spec_validation: "Spec",
+};
+
+const ACCEPT_PREFILL: Record<GateReviewPanelProps["stage"], string> = {
+  compliance_review: "Advisory findings reviewed; no hard compliance blocks. Accepted for release.",
+  spec_validation: "Crop reviewed and confirmed acceptable for the intended placements.",
+};
+
+export function GateReviewPanel({
   pipelineId,
+  stage,
   creatives,
   states,
+  advisories = [],
   onOpenCreative,
   onContinue,
-}: ComplianceOverrideGateProps) {
+}: GateReviewPanelProps) {
   const router = useRouter();
   const rows = buildGridRows(creatives, states);
-  const counts = rollupForStage(rows, "compliance_review");
+  const counts = rollupForStage(rows, stage);
   const blocked = rows.filter(
-    (r) => r.creative.status !== "killed" && r.cells.compliance_review.status === "failed",
+    (r) => r.creative.status !== "killed" && r.cells[stage].status === "failed",
   );
-  // `needs_review` verdicts land as `pending` (the engine found no hard blocks
-  // but wants a manager sign-off). These must be cleared too: they are NOT
-  // `failed`, so the blocked list never surfaced them, leaving the gate stuck.
+  // Soft "needs a human look" units: pending (compliance needs_review) or
+  // in_progress (spec warn). Not failed, so they never showed in a blocked list.
   const needsReview = rows.filter(
     (r) =>
       r.creative.status !== "killed" &&
-      (r.cells.compliance_review.status === "pending" ||
-        r.cells.compliance_review.status === "in_progress"),
+      (r.cells[stage].status === "pending" || r.cells[stage].status === "in_progress"),
   );
-  const overridden = rows.filter((r) => r.cells.compliance_review.status === "overridden");
-  // Use the single-source rollup predicate (matches the server
-  // `pipeline_rollup_cleared`): cleared only when every in-scope creative is
-  // passed/overridden/skipped. The old `counts.blocked === 0` check treated a
-  // pending unit as cleared, enabling a Continue the advance route then 422s.
-  const cleared = rollupCleared(rows, "compliance_review");
+  const cleared = rollupCleared(rows, stage);
 
   const [activeCreative, setActiveCreative] = useState<string | null>(null);
-  const [activeKind, setActiveKind] = useState<"override" | "accept">("override");
+  const [activeKind, setActiveKind] = useState<"override" | "accept">("accept");
   const [note, setNote] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // A hard-block override demands the deliberate type-to-confirm; an advisory
-  // accept (needs_review, no hard blocks) only needs the written justification.
   const needsConfirm = activeKind === "override";
   const canSubmit = note.trim().length > 0 && (!needsConfirm || confirm === CONFIRM_WORD) && !busy;
 
-  const submitOverride = async () => {
+  const advisoriesFor = (creativeId: string) =>
+    advisories.filter((a) => a.creative_id === creativeId && a.stage === stage);
+
+  const submit = async () => {
     if (!activeCreative || !canSubmit) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/pipelines/${pipelineId}/compliance/override`, {
+      const res = await fetch(`/api/pipelines/${pipelineId}/gate/decision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ creative_id: activeCreative, override_note: note.trim() }),
+        body: JSON.stringify({
+          creative_id: activeCreative,
+          stage,
+          decision: activeKind,
+          note: note.trim(),
+        }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(data.error ?? `Override failed (${res.status})`);
+        setError(data.error ?? `Decision failed (${res.status})`);
         return;
       }
       setActiveCreative(null);
@@ -118,8 +130,38 @@ export function ComplianceOverrideGate({
     }
   };
 
+  const openAccept = (creativeId: string) => {
+    setActiveCreative(creativeId);
+    setActiveKind("accept");
+    setNote(ACCEPT_PREFILL[stage]);
+    setConfirm("");
+    setError(null);
+  };
+  const openOverride = (creativeId: string) => {
+    setActiveCreative(creativeId);
+    setActiveKind("override");
+    setNote("");
+    setConfirm("");
+    setError(null);
+  };
+
+  const AdvisoryList = ({ creativeId }: { creativeId: string }) => {
+    const items = advisoriesFor(creativeId);
+    if (items.length === 0) return null;
+    return (
+      <ul className="mt-1 space-y-0.5">
+        {items.map((a, i) => (
+          <li key={`${a.label}-${i}`} className="text-xs text-muted-foreground">
+            <span className="font-medium">{a.label}</span>
+            {a.detail ? <span>: {a.detail}</span> : null}
+          </li>
+        ))}
+      </ul>
+    );
+  };
+
   return (
-    <div className="space-y-4" data-testid="compliance-gate">
+    <div className="space-y-4" data-testid="gate-review-panel" data-stage={stage}>
       {blocked.length > 0 ? (
         <div
           role="alert"
@@ -129,7 +171,7 @@ export function ComplianceOverrideGate({
           <ShieldAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
           <div>
             <p className="font-semibold">
-              Compliance is a hard gate: {blocked.length} creative(s) blocked.
+              {STAGE_NOUN[stage]} is a hard gate: {blocked.length} creative(s) blocked.
             </p>
             <p className="text-xs">
               Every blocked creative must pass or be overridden with a written justification before
@@ -142,7 +184,7 @@ export function ComplianceOverrideGate({
       <CreativeReviewGrid
         creatives={creatives}
         states={states}
-        mode="compliance_review"
+        mode={stage}
         onOpenCreative={onOpenCreative}
       />
 
@@ -153,21 +195,20 @@ export function ComplianceOverrideGate({
             {blocked.map((r) => (
               <li
                 key={r.creative.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
+                className="flex items-start justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
               >
-                <span className="truncate">{r.creative.concept ?? "Untitled concept"}</span>
+                <div className="min-w-0">
+                  <span className="truncate font-medium">
+                    {r.creative.concept ?? "Untitled concept"}
+                  </span>
+                  <AdvisoryList creativeId={r.creative.id} />
+                </div>
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
                   data-testid={`override-open-${r.creative.id}`}
-                  onClick={() => {
-                    setActiveCreative(r.creative.id);
-                    setActiveKind("override");
-                    setNote("");
-                    setConfirm("");
-                    setError(null);
-                  }}
+                  onClick={() => openOverride(r.creative.id)}
                 >
                   Override
                 </Button>
@@ -181,30 +222,27 @@ export function ComplianceOverrideGate({
         <section className="space-y-2" data-testid="needs-review-list">
           <h3 className="text-sm font-semibold">Needs review: advisory ({needsReview.length})</h3>
           <p className="text-xs text-muted-foreground">
-            No hard compliance blocks. The engine flagged advisory findings; accept each with a
-            written note to clear the gate (recorded as an audited manager decision).
+            No hard blocks. The checks flagged advisories below; accept each with a written note to
+            clear the gate (recorded as an audited manager decision).
           </p>
           <ul className="space-y-2">
             {needsReview.map((r) => (
               <li
                 key={r.creative.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
+                className="flex items-start justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm"
               >
-                <span className="truncate">{r.creative.concept ?? "Untitled concept"}</span>
+                <div className="min-w-0">
+                  <span className="truncate font-medium">
+                    {r.creative.concept ?? "Untitled concept"}
+                  </span>
+                  <AdvisoryList creativeId={r.creative.id} />
+                </div>
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
                   data-testid={`accept-open-${r.creative.id}`}
-                  onClick={() => {
-                    setActiveCreative(r.creative.id);
-                    setActiveKind("accept");
-                    setNote(
-                      "Advisory findings reviewed; no hard compliance blocks. Accepted for release.",
-                    );
-                    setConfirm("");
-                    setError(null);
-                  }}
+                  onClick={() => openAccept(r.creative.id)}
                 >
                   Review &amp; accept
                 </Button>
@@ -216,18 +254,18 @@ export function ComplianceOverrideGate({
 
       {activeCreative ? (
         <section
-          data-testid="override-form"
+          data-testid="decision-form"
           className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/20"
         >
           <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-            {needsConfirm ? "Override compliance block" : "Accept advisory findings"}
+            {needsConfirm ? `Override ${STAGE_NOUN[stage]} block` : "Accept advisory findings"}
           </h3>
-          <label className="block text-xs font-medium" htmlFor="override-note">
+          <label className="block text-xs font-medium" htmlFor="decision-note">
             Justification (required)
           </label>
           <textarea
-            id="override-note"
-            data-testid="override-note"
+            id="decision-note"
+            data-testid="decision-note"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder={
@@ -239,12 +277,12 @@ export function ComplianceOverrideGate({
           />
           {needsConfirm ? (
             <>
-              <label className="block text-xs font-medium" htmlFor="override-confirm">
+              <label className="block text-xs font-medium" htmlFor="decision-confirm">
                 Type <span className="font-mono font-semibold">{CONFIRM_WORD}</span> to confirm
               </label>
               <input
-                id="override-confirm"
-                data-testid="override-confirm"
+                id="decision-confirm"
+                data-testid="decision-confirm"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
@@ -261,9 +299,9 @@ export function ComplianceOverrideGate({
               type="button"
               size="sm"
               variant={needsConfirm ? "destructive" : "default"}
-              data-testid="override-submit"
+              data-testid="decision-submit"
               disabled={!canSubmit}
-              onClick={submitOverride}
+              onClick={submit}
             >
               {busy
                 ? needsConfirm
@@ -280,43 +318,21 @@ export function ComplianceOverrideGate({
         </section>
       ) : null}
 
-      {overridden.length > 0 ? (
-        <section className="space-y-2" data-testid="override-audit">
-          <h3 className="text-sm font-semibold">Override audit</h3>
-          <ul className="space-y-1.5">
-            {overridden.map((r) => (
-              <li
-                key={r.creative.id}
-                className="flex items-start gap-2 rounded-md border border-border bg-card px-3 py-2 text-xs"
-              >
-                <SubStatePill status="overridden" />
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{r.creative.concept ?? "Untitled concept"}</p>
-                  {r.cells.compliance_review.note ? (
-                    <p className="text-muted-foreground">{r.cells.compliance_review.note}</p>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
       <div className="flex items-center justify-end gap-3 border-t border-border pt-3">
         <span className="text-xs text-muted-foreground">
           {cleared
-            ? "Compliance cleared for all creatives."
+            ? `${STAGE_NOUN[stage]} cleared for all creatives.`
             : `${counts.blocked} blocked · ${counts.pending} pending`}
         </span>
         <Button
           type="button"
-          data-testid="compliance-continue"
+          data-testid="gate-continue"
           disabled={!cleared}
           aria-disabled={!cleared}
           className={cn(!cleared && "cursor-not-allowed")}
           onClick={onContinue}
         >
-          Continue to copy
+          Continue
         </Button>
       </div>
     </div>

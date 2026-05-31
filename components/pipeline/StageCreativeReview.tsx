@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { ComplianceOverrideGate } from "@/components/review/ComplianceOverrideGate";
+import { GateReviewPanel } from "@/components/review/GateReviewPanel";
 import { CreativeReviewGrid } from "@/components/review/CreativeReviewGrid";
 import { ReviewDrawer } from "@/components/review/ReviewDrawer";
 import { StageShell } from "@/components/pipeline/StageShell";
+import type { GateAdvisory } from "@/lib/review/fetch";
 import {
   buildGridRows,
   rollupCleared,
@@ -18,10 +19,10 @@ import {
 /**
  * Mode-parameterized stage host for the four per-creative gate stages
  * (creative_qa / compliance_review / copy / spec_validation). Renders the
- * CreativeReviewGrid and the per-creative ReviewDrawer; for compliance it swaps
- * in the ComplianceOverrideGate (hard block + override). The Continue button is
- * gated on the per-creative rollup clearing (matching the server gate); it POSTs
- * to the generic advance route.
+ * CreativeReviewGrid and the per-creative ReviewDrawer; for compliance + spec it
+ * swaps in the unified GateReviewPanel (hard-block override + soft advisory
+ * accept). The Continue button is gated on the per-creative rollup clearing
+ * (matching the server gate); it POSTs to the generic advance route.
  */
 export type StageCreativeReviewProps = {
   pipelineId: string;
@@ -29,6 +30,8 @@ export type StageCreativeReviewProps = {
   creatives: GridCreative[];
   states: StageStateRow[];
   signedUrls: Record<string, string | null>;
+  /** Per-creative advisories for the soft-gate accept UI (compliance + spec). */
+  advisories?: GateAdvisory[];
 };
 
 const STAGE_TITLE: Record<CreativeStage, string> = {
@@ -53,6 +56,7 @@ export function StageCreativeReview({
   creatives,
   states,
   signedUrls,
+  advisories = [],
 }: StageCreativeReviewProps) {
   const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -94,8 +98,9 @@ export function StageCreativeReview({
     />
   );
 
-  // Compliance gets the dedicated hard-block gate; the others get the grid.
-  if (mode === "compliance_review") {
+  // Compliance + spec get the unified gate panel (hard-block override + soft
+  // advisory accept, posting to /gate/decision); creative_qa gets the grid.
+  if (mode === "compliance_review" || mode === "spec_validation") {
     return (
       <>
         <StageShell
@@ -103,10 +108,12 @@ export function StageCreativeReview({
           subtitle={STAGE_SUBTITLE[mode]}
           canContinue={false}
           body={
-            <ComplianceOverrideGate
+            <GateReviewPanel
               pipelineId={pipelineId}
+              stage={mode}
               creatives={creatives}
               states={states}
+              advisories={advisories}
               onOpenCreative={setOpenId}
               onContinue={advance}
             />

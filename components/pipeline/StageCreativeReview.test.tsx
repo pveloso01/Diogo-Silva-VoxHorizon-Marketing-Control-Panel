@@ -106,7 +106,7 @@ describe("StageCreativeReview", () => {
         signedUrls={{}}
       />,
     );
-    expect(screen.getByTestId("compliance-gate")).toBeInTheDocument();
+    expect(screen.getByTestId("gate-review-panel")).toBeInTheDocument();
   });
 
   it("opens the drawer when a creative is drilled into (with no signed url)", async () => {
@@ -173,7 +173,7 @@ describe("StageCreativeReview", () => {
         signedUrls={{}}
       />,
     );
-    await user.click(screen.getByTestId("compliance-continue"));
+    await user.click(screen.getByTestId("gate-continue"));
     await waitFor(() =>
       expect(fetchSpy).toHaveBeenCalledWith(
         "/api/pipelines/p1/advance",
