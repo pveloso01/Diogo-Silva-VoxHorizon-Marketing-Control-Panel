@@ -185,7 +185,7 @@ export default async function PipelineDetailPage({ params }: { params: Promise<{
   const approvalsHref = `/approvals?session=${encodeURIComponent(pipeline.id)}` as Route;
 
   return (
-    <main className="container mx-auto flex min-h-dvh max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-12">
+    <main className="flex min-h-dvh w-full flex-col gap-6 px-4 py-6 sm:px-6 sm:py-12">
       <PipelineDetailRealtime pipelineId={pipeline.id} />
 
       <header className="space-y-2">
@@ -241,7 +241,48 @@ export default async function PipelineDetailPage({ params }: { params: Promise<{
         // + spend-approvals access alongside it. The narration view reuses the
         // realtime relay (pipeline_events), and the spend gate itself lands in
         // the global ApprovalQueue (header bell) via the approval plugin.
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[20rem_minmax(0,1fr)_22rem]">
+          {/* Left context rail. Shown only at xl+ so the existing single-column
+              (mobile) and 2-zone (lg laptop) layouts are unchanged; the freed
+              width on wide screens carries the run context a supervisor keeps
+              referencing while judging a stage. All data is already on the page. */}
+          <aside className="hidden flex-col gap-4 xl:sticky xl:top-6 xl:flex xl:self-start">
+            <div className="rounded-lg border border-border bg-card px-4 py-4 text-sm">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Run context
+              </h2>
+              <dl className="space-y-2.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <dt className="text-muted-foreground">Client</dt>
+                  <dd className="text-right font-medium">
+                    {shortClientLabel(pipeline, clientName)}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted-foreground">Status</dt>
+                  <dd>
+                    <StatusBadge status={pipeline.status} />
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted-foreground">Format</dt>
+                  <dd>
+                    <StatusBadge status={pipeline.format_choice} />
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <dt className="text-muted-foreground">Pipeline</dt>
+                  <dd className="font-mono text-xs">{pipeline.id.slice(0, 8)}</dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <dt className="text-muted-foreground">Created</dt>
+                  <dd className="text-right">
+                    {new Date(pipeline.created_at).toLocaleDateString()}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          </aside>
           <div className="flex min-w-0 flex-col gap-6">
             {pipeline.status === "configuration" ? (
               <StageConfiguration pipeline={pipeline} clients={clients} imageBrief={imageBrief} />

@@ -187,7 +187,8 @@ describe("PipelineDetailPage", () => {
     });
     const el = await PipelineDetailPage({ params: Promise.resolve({ id: "abcd1234-rest" }) });
     render(el);
-    expect(screen.getByText("Acme")).toBeInTheDocument();
+    // "Acme" now appears in the header AND the new run-context rail.
+    expect(screen.getAllByText("Acme").length).toBeGreaterThan(0);
     expect(screen.getByTestId("stage")).toHaveAttribute("data-stage", "configuration");
   });
 
