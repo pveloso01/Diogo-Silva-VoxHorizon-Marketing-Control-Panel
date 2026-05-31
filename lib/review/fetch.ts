@@ -60,7 +60,7 @@ export async function getReviewBundle(pipelineId: string): Promise<ReviewBundle>
   // missing pipeline (or unreadable row) degrades to image-only behaviour.
   const { data: pipeline } = await supabase
     .from("pipelines")
-    .select("format_choice, video_brief_id")
+    .select("format_choice, image_brief_id, video_brief_id")
     .eq("id", pipelineId)
     .maybeSingle();
   const tracks = activeTracksLocal((pipeline?.format_choice ?? "image") as PipelineFormat);
@@ -69,13 +69,21 @@ export async function getReviewBundle(pipelineId: string): Promise<ReviewBundle>
   const copyVariants: LaunchCopyVariant[] = [];
   const signedUrls: Record<string, string | null> = {};
 
-  // ----- Image track (unchanged) -----
+  // ----- Image track -----
+  // Fetch the FINAL image creatives (v1*) by `image_brief_id`, NOT `pipeline_id`.
+  // The canonical render path (record_creative_stage) keys creatives on
+  // `brief_id` and leaves `pipeline_id` NULL, so a pipeline_id filter returned
+  // ZERO rows for operator-rendered finals -> creative_qa (and every per-creative
+  // review stage) rendered EMPTY. Mirrors the video track's brief_id fetch + the
+  // v1* scope the QA-gate seed (migration 0056) uses, so the grid matches the
+  // seeded gates exactly.
   let imageRows: CreativeRow[] = [];
-  if (tracks.image) {
+  if (tracks.image && pipeline?.image_brief_id) {
     const { data: creativeRows } = await supabase
       .from("creatives")
       .select("id, concept, status, file_path_supabase")
-      .eq("pipeline_id", pipelineId)
+      .eq("brief_id", pipeline.image_brief_id)
+      .like("version", "v1%")
       .is("deleted_at", null)
       .order("created_at", { ascending: true });
     imageRows = (creativeRows ?? []) as CreativeRow[];
