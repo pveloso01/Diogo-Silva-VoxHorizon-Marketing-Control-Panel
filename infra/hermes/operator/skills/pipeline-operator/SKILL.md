@@ -36,7 +36,7 @@ to). The 12 producing stages are:
 
 ```
 configuration -> ideation -> review -> generation -> creative_qa ->
-compliance_review (HARD) -> copy -> spec_validation -> variant_plan ->
+copy -> compliance_review (HARD) -> spec_validation -> variant_plan ->
 finalize_assets -> launch_handoff (HARD) -> monitor -> done   (+ cancelled)
 ```
 
@@ -376,10 +376,12 @@ results=[{creative_id, verdict, scores, defects, remediation}, ...])` — ONE
 
 Goal: a per-creative compliance verdict (Meta personal-attributes,
 before/after by vertical, FTC substantiation, financial special-ad-category,
-Google overlay rules, per-client do-not-say). **This is a HARD GATE.** It is
-two-pass: a **visual** pass here before copy, then the unit is **re-armed**
-when copy changes (editing copy voids a prior pass — see the copy stage). This
-is a **per-creative** stage — apply the loop rules.
+Google overlay rules, per-client do-not-say). **This is a HARD GATE.** It runs
+AFTER copy (the reordered DAG: creative_qa -> copy -> compliance_review ->
+spec), so it screens the final visual AND the approved copy text in one pass.
+If copy is later edited (e.g. at spec/launch) the unit is **re-armed** to
+pending (a safety net) and must be re-screened. This is a **per-creative**
+stage; apply the loop rules.
 
 - **Reads:** `pipeline_operator_read` (OUTSTANDING creatives for
   `compliance_review`); `pipeline_operator_client_read` for `offer_constraints`
@@ -418,8 +420,11 @@ candidates=[{creative_id, findings:[...]}, ...])` — ONE array call. The
 
 Goal: >=3 approved copy variants per creative (headline + primary text + CTA +
 description), in the owner's voice, humanized, pattern-matched to the winning
-registry. **No spend.** This is a **per-creative** stage — apply the loop
-rules. Copy edits **re-arm** that creative's compliance unit (two-pass).
+registry. **No spend.** This is a **per-creative** stage; apply the loop
+rules. Copy runs BEFORE compliance in the reordered DAG, so the copy you author
+here is exactly what the next compliance stage screens. (Editing approved copy
+LATER, e.g. at spec or launch, re-arms that creative's compliance unit as a
+safety net.)
 
 - **Reads:** `pipeline_operator_read` (OUTSTANDING creatives for `copy`; their
   visual descriptions drive the pairing); `pipeline_operator_client_read` for
@@ -438,11 +443,12 @@ variants=[{creative_id, platform, variant_index, pattern, headline,
 primary_text, description, cta, validation}, ...])` — ONE array call for the
   whole batch.
 - **Narration line:** _"Copy is drafted: 3+ variants per creative, owner voice,
-  pattern-tagged and humanized. Approve them in the dashboard. Note that
-  approving copy re-arms the compliance check on those creatives."_
+  pattern-tagged and humanized. Approve them in the dashboard. Compliance
+  screens this approved copy at the next stage."_
 - **Signal:** `..._signal(..., "copy", status="done"|"partial")`.
-- **Stop.** The manager approves copy at the gate. Approved copy edits re-arm
-  compliance for that creative.
+- **Stop.** The manager approves copy at the gate. The pipeline then advances to
+  compliance, which screens the approved copy. (A later copy edit re-arms
+  compliance for that creative.)
 
 ---
 

@@ -924,7 +924,7 @@ describe("POST /api/pipelines/:id/advance", () => {
       currentSupabase = mockClient({
         pipelines: {
           select: { single: { data: perCreativePipeline("creative_qa"), error: null } },
-          update: { single: { data: { id, status: "compliance_review" }, error: null } },
+          update: { single: { data: { id, status: "copy" }, error: null } },
         },
         creative_stage_state: {
           select: { data: [{ status: "passed" }, { status: "passed" }], error: null },
@@ -937,7 +937,8 @@ describe("POST /api/pipelines/:id/advance", () => {
       );
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.pipeline.status).toBe("compliance_review");
+      // Reordered DAG: creative_qa now advances to copy (copy before compliance).
+      expect(body.pipeline.status).toBe("copy");
     });
 
     it("422 HARD-BLOCKS compliance_review while a creative is failed", async () => {
@@ -998,7 +999,7 @@ describe("POST /api/pipelines/:id/advance", () => {
       currentSupabase = mockClient({
         pipelines: {
           select: { single: { data: perCreativePipeline("creative_qa"), error: null } },
-          update: { single: { data: { id, status: "compliance_review" }, error: null } },
+          update: { single: { data: { id, status: "copy" }, error: null } },
         },
         creative_stage_state: {
           select: {
@@ -1019,14 +1020,14 @@ describe("POST /api/pipelines/:id/advance", () => {
       );
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.pipeline.status).toBe("compliance_review");
+      expect(body.pipeline.status).toBe("copy");
     });
 
     it("treats overridden + skipped as cleared and advances compliance_review", async () => {
       currentSupabase = mockClient({
         pipelines: {
           select: { single: { data: perCreativePipeline("compliance_review"), error: null } },
-          update: { single: { data: { id, status: "copy" }, error: null } },
+          update: { single: { data: { id, status: "spec_validation" }, error: null } },
         },
         creative_stage_state: {
           select: { data: [{ status: "overridden" }, { status: "skipped" }], error: null },
@@ -1039,7 +1040,7 @@ describe("POST /api/pipelines/:id/advance", () => {
       );
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.pipeline.status).toBe("copy");
+      expect(body.pipeline.status).toBe("spec_validation");
     });
 
     it("blocked -> override -> advances (integration of the hard gate)", async () => {
@@ -1063,7 +1064,7 @@ describe("POST /api/pipelines/:id/advance", () => {
       currentSupabase = mockClient({
         pipelines: {
           select: { single: { data: perCreativePipeline("compliance_review"), error: null } },
-          update: { single: { data: { id, status: "copy" }, error: null } },
+          update: { single: { data: { id, status: "spec_validation" }, error: null } },
         },
         creative_stage_state: {
           select: { data: [{ status: "overridden" }], error: null },
@@ -1076,7 +1077,7 @@ describe("POST /api/pipelines/:id/advance", () => {
       );
       expect(advanced.status).toBe(200);
       const body = await advanced.json();
-      expect(body.pipeline.status).toBe("copy");
+      expect(body.pipeline.status).toBe("spec_validation");
     });
 
     it("500 when the pipeline update races (compare-and-set miss)", async () => {
@@ -1131,13 +1132,25 @@ describe("POST /api/pipelines/:id/advance", () => {
       };
     }
 
-    it("deterministic creative_qa->compliance_review enqueues worker_compliance", async () => {
+    it("deterministic copy->compliance_review enqueues worker_compliance", async () => {
+      // Reordered DAG: copy now precedes compliance. The copy gate is
+      // approved-count based, so mock creatives + approved copy_variants.
       currentSupabase = mockClient({
         pipelines: {
-          select: { single: { data: perCreative("creative_qa"), error: null } },
+          select: { single: { data: perCreative("copy"), error: null } },
           update: { single: { data: { id, status: "compliance_review" }, error: null } },
         },
-        creative_stage_state: { select: { data: [{ status: "passed" }], error: null } },
+        creatives: { select: { data: [{ id: "c1", status: "draft" }], error: null } },
+        copy_variants: {
+          select: {
+            data: [
+              { creative_id: "c1", status: "approved" },
+              { creative_id: "c1", status: "approved" },
+              { creative_id: "c1", status: "approved" },
+            ],
+            error: null,
+          },
+        },
         pipeline_events: { insert: { data: null, error: null } },
       });
       const res = await POST(
@@ -1152,16 +1165,16 @@ describe("POST /api/pipelines/:id/advance", () => {
       expect((opts.payload as Record<string, unknown>).stage).toBe("compliance_review");
     });
 
-    it("deterministic copy->spec_validation enqueues worker_spec", async () => {
+    it("creative_qa->copy is manual (no enqueue); compliance_review->spec_validation enqueues worker_spec", async () => {
+      // creative_qa -> copy: deterministic copy is MANUAL, so NO enqueue.
       currentSupabase = mockClient({
         pipelines: {
-          select: { single: { data: perCreative("compliance_review"), error: null } },
+          select: { single: { data: perCreative("creative_qa"), error: null } },
           update: { single: { data: { id, status: "copy" }, error: null } },
         },
         creative_stage_state: { select: { data: [{ status: "passed" }], error: null } },
         pipeline_events: { insert: { data: null, error: null } },
       });
-      // compliance_review -> copy: deterministic copy is MANUAL, so NO enqueue.
       const toCopy = await POST(
         req(`http://localhost/api/pipelines/${id}/advance`, { method: "POST" }),
         { params },
@@ -1169,24 +1182,14 @@ describe("POST /api/pipelines/:id/advance", () => {
       expect(toCopy.status).toBe(200);
       expect(enqueueWorkItem).not.toHaveBeenCalled();
 
-      // copy -> spec_validation: enqueues worker_spec.
+      // compliance_review -> spec_validation: enqueues worker_spec.
       enqueueWorkItem.mockClear();
       currentSupabase = mockClient({
         pipelines: {
-          select: { single: { data: perCreative("copy"), error: null } },
+          select: { single: { data: perCreative("compliance_review"), error: null } },
           update: { single: { data: { id, status: "spec_validation" }, error: null } },
         },
-        creatives: { select: { data: [{ id: "c1", status: "draft" }], error: null } },
-        copy_variants: {
-          select: {
-            data: [
-              { creative_id: "c1", status: "approved" },
-              { creative_id: "c1", status: "approved" },
-              { creative_id: "c1", status: "approved" },
-            ],
-            error: null,
-          },
-        },
+        creative_stage_state: { select: { data: [{ status: "passed" }], error: null } },
         pipeline_events: { insert: { data: null, error: null } },
       });
       const toSpec = await POST(
@@ -1217,11 +1220,11 @@ describe("POST /api/pipelines/:id/advance", () => {
       expect(enqueueWorkItem).not.toHaveBeenCalled();
     });
 
-    it("operator creative_qa->compliance_review enqueues operator_dispatch", async () => {
+    it("operator creative_qa->copy enqueues operator_dispatch", async () => {
       currentSupabase = mockClient({
         pipelines: {
           select: { single: { data: perCreative("creative_qa", true), error: null } },
-          update: { single: { data: { id, status: "compliance_review" }, error: null } },
+          update: { single: { data: { id, status: "copy" }, error: null } },
         },
         creative_stage_state: { select: { data: [{ status: "passed" }], error: null } },
         pipeline_events: { insert: { data: null, error: null } },
@@ -1234,18 +1237,20 @@ describe("POST /api/pipelines/:id/advance", () => {
       expect(enqueueWorkItem).toHaveBeenCalledTimes(1);
       const opts = enqueueWorkItem.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(opts.kind).toBe("operator_dispatch");
-      expect(opts.idempotencyKey).toBe(`op-disp:${id}:compliance_review:advance`);
+      expect(opts.idempotencyKey).toBe(`op-disp:${id}:copy:advance`);
       const payload = opts.payload as Record<string, unknown>;
-      expect(payload.stage).toBe("compliance_review");
+      expect(payload.stage).toBe("copy");
       expect(String(payload.instruction)).toContain(id);
     });
 
     it("500 when the stage dispatch enqueue fails (not swallowed)", async () => {
       enqueueWorkItem.mockRejectedValueOnce(new Error("work_item insert failed: boom"));
+      // compliance_review -> spec_validation dispatches worker_spec, so the
+      // enqueue failure surfaces (creative_qa -> copy would be manual / no enqueue).
       currentSupabase = mockClient({
         pipelines: {
-          select: { single: { data: perCreative("creative_qa"), error: null } },
-          update: { single: { data: { id, status: "compliance_review" }, error: null } },
+          select: { single: { data: perCreative("compliance_review"), error: null } },
+          update: { single: { data: { id, status: "spec_validation" }, error: null } },
         },
         creative_stage_state: { select: { data: [{ status: "passed" }], error: null } },
         pipeline_events: { insert: { data: null, error: null } },
@@ -1260,7 +1265,7 @@ describe("POST /api/pipelines/:id/advance", () => {
     });
   });
 
-  describe("copy → spec_validation (approved-copy gate, no-stall wiring)", () => {
+  describe("copy → compliance_review (approved-copy gate, no-stall wiring)", () => {
     function copyPipeline() {
       return {
         id,
@@ -1278,7 +1283,7 @@ describe("POST /api/pipelines/:id/advance", () => {
       currentSupabase = mockClient({
         pipelines: {
           select: { single: { data: copyPipeline(), error: null } },
-          update: { single: { data: { id, status: "spec_validation" }, error: null } },
+          update: { single: { data: { id, status: "compliance_review" }, error: null } },
         },
         creatives: { select: { data: [{ id: "c1", status: "draft" }], error: null } },
         copy_variants: {
@@ -1299,7 +1304,7 @@ describe("POST /api/pipelines/:id/advance", () => {
       );
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.pipeline.status).toBe("spec_validation");
+      expect(body.pipeline.status).toBe("compliance_review");
     });
 
     it("422 when a creative is short on approved copy", async () => {
@@ -1380,7 +1385,7 @@ describe("POST /api/pipelines/:id/advance", () => {
       currentSupabase = mockClient({
         pipelines: {
           select: { single: { data: videoCopyPipeline("video"), error: null } },
-          update: { single: { data: { id, status: "spec_validation" }, error: null } },
+          update: { single: { data: { id, status: "compliance_review" }, error: null } },
         },
         video_creatives: { select: { data: [{ id: "vc1", status: "captioned" }], error: null } },
         video_copy_variants: {
@@ -1401,7 +1406,7 @@ describe("POST /api/pipelines/:id/advance", () => {
       );
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.pipeline.status).toBe("spec_validation");
+      expect(body.pipeline.status).toBe("compliance_review");
     });
 
     it("422 when a video creative is short on approved video copy", async () => {
@@ -1426,7 +1431,7 @@ describe("POST /api/pipelines/:id/advance", () => {
       currentSupabase = mockClient({
         pipelines: {
           select: { single: { data: videoCopyPipeline("both"), error: null } },
-          update: { single: { data: { id, status: "spec_validation" }, error: null } },
+          update: { single: { data: { id, status: "compliance_review" }, error: null } },
         },
         creatives: { select: { data: [{ id: "c1", status: "draft" }], error: null } },
         copy_variants: {

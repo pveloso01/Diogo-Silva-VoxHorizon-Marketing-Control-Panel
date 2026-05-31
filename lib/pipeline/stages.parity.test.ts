@@ -48,8 +48,15 @@ function literals(fragment: string): string[] {
 }
 
 describe("stage registry <-> DB pipeline_status_enum parity", () => {
-  it("registry order equals the DB enum value order", () => {
-    expect(ALL_STAGE_KEYS).toEqual(dbEnumOrder("pipeline_status_enum"));
+  it("registry keys match the DB enum value SET (gate order is registry-driven)", () => {
+    // The per-creative gate ORDER lives in the registry `next` chain (asserted
+    // by "the next chain walks the happy path" below), NOT the Postgres enum
+    // ordinal: nothing reads the enum ordinal (no enum_range / ORDER BY an enum
+    // column / ordinal comparisons; the reducer orders by pipeline_events.seq).
+    // So copy<->compliance_review may sit in a different position in the registry
+    // DAG than in the enum's declaration order. We assert the registry covers
+    // exactly the enum's value SET; the DAG order is contracted separately.
+    expect([...ALL_STAGE_KEYS].sort()).toEqual([...dbEnumOrder("pipeline_status_enum")].sort());
   });
 
   it("every registry key is a valid PipelineStatus (type-level + runtime)", () => {

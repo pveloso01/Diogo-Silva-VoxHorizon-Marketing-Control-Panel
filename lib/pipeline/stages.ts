@@ -136,6 +136,21 @@ export const PIPELINE_STAGE_REGISTRY: readonly StageDef[] = [
     phase: "vet",
     perCreative: true,
     hardGate: false,
+    next: "copy",
+  },
+  {
+    // Copy runs BEFORE compliance: compliance screens the COPY text (its default
+    // surface), so the copy must exist first. The old order (compliance before
+    // copy) screened only the image, then authoring copy voided the clearance
+    // with no re-screen. Copy-first means compliance adjudicates the final copy
+    // + image in one forward pass.
+    key: "copy",
+    label: "Copy",
+    mechanism: "gate",
+    stageClass: "per_creative",
+    phase: "vet",
+    perCreative: true,
+    hardGate: false,
     next: "compliance_review",
   },
   {
@@ -146,16 +161,6 @@ export const PIPELINE_STAGE_REGISTRY: readonly StageDef[] = [
     phase: "vet",
     perCreative: true,
     hardGate: true,
-    next: "copy",
-  },
-  {
-    key: "copy",
-    label: "Copy",
-    mechanism: "gate",
-    stageClass: "per_creative",
-    phase: "vet",
-    perCreative: true,
-    hardGate: false,
     next: "spec_validation",
   },
   {

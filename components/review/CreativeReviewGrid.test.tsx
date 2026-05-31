@@ -42,9 +42,13 @@ describe("CreativeReviewGrid", () => {
 
   it("locks downstream cells until upstream clears (forced ordering)", () => {
     render(<CreativeReviewGrid creatives={creatives} states={states} mode="creative_qa" />);
-    // QA passed → compliance unlocked; compliance failed → copy locked.
-    expect(screen.getByTestId("grid-cell-a-compliance_review")).not.toHaveAttribute("data-locked");
-    expect(screen.getByTestId("grid-cell-a-copy")).toHaveAttribute("data-locked", "true");
+    // Reordered: QA → copy → compliance → spec. QA passed → copy unlocked; copy
+    // not cleared (no copy state) → compliance locked downstream.
+    expect(screen.getByTestId("grid-cell-a-copy")).not.toHaveAttribute("data-locked");
+    expect(screen.getByTestId("grid-cell-a-compliance_review")).toHaveAttribute(
+      "data-locked",
+      "true",
+    );
   });
 
   it("emphasises the active mode column", () => {

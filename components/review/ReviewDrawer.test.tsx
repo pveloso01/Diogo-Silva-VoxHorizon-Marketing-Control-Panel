@@ -35,9 +35,10 @@ describe("ReviewDrawer", () => {
   it("shows the locked message for a locked stage", async () => {
     const user = userEvent.setup();
     render(<ReviewDrawer creative={creative} states={states} open onOpenChange={() => {}} />);
-    // copy is locked (compliance failed). Open the copy tab.
-    await user.click(screen.getByTestId("drawer-tab-copy"));
-    expect(screen.getByTestId("drawer-locked-copy")).toBeInTheDocument();
+    // Reordered (QA → copy → compliance → spec): copy now unlocks after QA.
+    // Compliance is failed (not cleared), so the downstream spec stage is locked.
+    await user.click(screen.getByTestId("drawer-tab-spec_validation"));
+    expect(screen.getByTestId("drawer-locked-spec_validation")).toBeInTheDocument();
   });
 
   it("renders the preview tab with a signed URL", async () => {

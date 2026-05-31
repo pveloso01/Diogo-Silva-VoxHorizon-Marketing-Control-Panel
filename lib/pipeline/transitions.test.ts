@@ -94,9 +94,9 @@ describe("canAdvance: review + generation", () => {
 
 describe("canAdvance: per-creative gates (rollup)", () => {
   it.each([
-    ["creative_qa", "compliance_review"],
-    ["compliance_review", "copy"],
-    ["copy", "spec_validation"],
+    ["creative_qa", "copy"],
+    ["copy", "compliance_review"],
+    ["compliance_review", "spec_validation"],
     ["spec_validation", "variant_plan"],
   ] as const)("%s blocks until rollup cleared, then → %s", (from, to) => {
     expect(canAdvance(p({ status: from }), { rollupCleared: false }).ok).toBe(false);
@@ -204,9 +204,9 @@ describe("nextStage: full 12-stage DAG", () => {
     ["ideation", "review"],
     ["review", "generation"],
     ["generation", "creative_qa"],
-    ["creative_qa", "compliance_review"],
-    ["compliance_review", "copy"],
-    ["copy", "spec_validation"],
+    ["creative_qa", "copy"],
+    ["copy", "compliance_review"],
+    ["compliance_review", "spec_validation"],
     ["spec_validation", "variant_plan"],
     ["variant_plan", "finalize_assets"],
     ["finalize_assets", "launch_handoff"],

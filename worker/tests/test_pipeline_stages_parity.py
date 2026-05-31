@@ -65,9 +65,17 @@ def test_generated_order_equals_manifest_order() -> None:
     assert list(PIPELINE_STAGES) == _manifest_keys()
 
 
-def test_manifest_order_equals_db_enum_order() -> None:
-    """The registry order equals the DB ``pipeline_status_enum`` order."""
-    assert _manifest_keys() == _db_enum_order()
+def test_manifest_keys_match_db_enum_set() -> None:
+    """The registry covers exactly the DB ``pipeline_status_enum`` value SET.
+
+    The per-creative gate ORDER lives in the registry ``next`` chain, NOT the
+    Postgres enum ordinal -- nothing reads the enum ordinal (no ``enum_range`` /
+    ``ORDER BY`` an enum column / ordinal comparison; the macro reducer orders by
+    ``pipeline_events.seq``). After the copy<->compliance_review reorder the
+    registry DAG order differs from the enum declaration order, so we assert the
+    value SET matches rather than the order.
+    """
+    assert sorted(_manifest_keys()) == sorted(_db_enum_order())
 
 
 def test_pipeline_runner_reexports_the_generated_literal() -> None:
