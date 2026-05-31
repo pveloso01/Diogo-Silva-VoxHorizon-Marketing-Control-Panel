@@ -314,6 +314,43 @@ def test_spec_422_on_bad_status(
     assert resp.status_code == 422
 
 
+def test_spec_422_on_bad_placement(
+    client: TestClient, stage_sb: FakeSupabase
+) -> None:
+    # An out-of-vocabulary placement (the operator inventing "feed_square") is a
+    # clean 422 at the API boundary, NOT a raw 500 when the value would hit the
+    # Postgres placement_enum column. Regression for the spec-stage outage.
+    stage_sb.set_single("pipelines", _pipeline_row())
+    resp = client.post(
+        "/work/pipeline/tools/spec_result",
+        headers=_auth(),
+        json={
+            "pipeline_id": "p-1",
+            "results": [
+                {"creative_id": "cr-1", "placement": "feed_square", "ratio": "1x1", "status": "pass"}
+            ],
+        },
+    )
+    assert resp.status_code == 422
+
+
+def test_spec_422_on_bad_ratio(
+    client: TestClient, stage_sb: FakeSupabase
+) -> None:
+    stage_sb.set_single("pipelines", _pipeline_row())
+    resp = client.post(
+        "/work/pipeline/tools/spec_result",
+        headers=_auth(),
+        json={
+            "pipeline_id": "p-1",
+            "results": [
+                {"creative_id": "cr-1", "placement": "feed", "ratio": "2x3", "status": "pass"}
+            ],
+        },
+    )
+    assert resp.status_code == 422
+
+
 def test_spec_idempotent_updates_existing_check(
     client: TestClient, stage_sb: FakeSupabase
 ) -> None:

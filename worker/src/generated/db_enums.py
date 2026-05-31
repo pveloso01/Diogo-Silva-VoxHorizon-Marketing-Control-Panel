@@ -41,6 +41,14 @@ QA_STATUSES: tuple[QaStatuses, ...] = ("pass", "fail", "needs_review")
 SpecStatuses = Literal["pending", "pass", "warn", "fail", "exception"]
 SPEC_STATUSES: tuple[SpecStatuses, ...] = ("pending", "pass", "warn", "fail", "exception")
 
+# placement_enum
+Placements = Literal["feed", "stories", "reels", "marketplace", "search", "display", "pmax"]
+PLACEMENTS: tuple[Placements, ...] = ("feed", "stories", "reels", "marketplace", "search", "display", "pmax")
+
+# ratio
+Ratios = Literal["1x1", "9x16", "16x9", "4x5", "1.91x1"]
+RATIOS: tuple[Ratios, ...] = ("1x1", "9x16", "16x9", "4x5", "1.91x1")
+
 # copy_variant_status_enum
 CopyVariantStatuses = Literal["draft", "validated", "approved", "rejected", "retired"]
 COPY_VARIANT_STATUSES: tuple[CopyVariantStatuses, ...] = ("draft", "validated", "approved", "rejected", "retired")
@@ -77,11 +85,15 @@ __all__ = [
     "PER_CREATIVE_STAGES",
     "PIPELINE_FORMATS",
     "PIPELINE_STATUSES",
+    "PLACEMENTS",
     "PerCreativeStages",
     "PipelineFormats",
     "PipelineStatuses",
+    "Placements",
     "QA_STATUSES",
     "QaStatuses",
+    "RATIOS",
+    "Ratios",
     "SPEC_STATUSES",
     "STAGE_STATES",
     "SpecStatuses",

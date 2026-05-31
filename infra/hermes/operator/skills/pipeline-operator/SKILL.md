@@ -462,8 +462,20 @@ once every in-scope creative's spec gate is cleared.
   crops the worker generated. Surface exceptions; do not silently "fix" a
   failing placement.
 - **MCP tool:** `pipeline_operator_spec_result(pipeline_id,
-results=[{creative_id, placement, ratio, status, crop_ref, exceptions}, ...])`
-  — ONE array call.
+results=[{creative_id, placement, ratio, status, crop_ref, exceptions}, ...])`:
+  ONE array call.
+- **`placement` and `ratio` are CLOSED enums** (an out-of-vocabulary value such
+  as `feed_square` is rejected HTTP 422). Submit ONLY:
+  - placement: `feed | stories | reels | marketplace | search | display | pmax`
+  - ratio: `1x1 | 9x16 | 16x9 | 4x5 | 1.91x1`
+  - status: `pass | warn | fail | exception | pending`
+    Placement and aspect ratio are SEPARATE fields, one result row each. Map the
+    crops you validated to (placement, ratio) pairs, e.g. Meta square feed =
+    `{placement:"feed", ratio:"1x1"}` (NOT `feed_square`), Meta 4:5 feed =
+    `{placement:"feed", ratio:"4x5"}`, story/reel vertical =
+    `{placement:"stories"|"reels", ratio:"9x16"}`, Google overlay-free =
+    `{placement:"display", ratio:"1.91x1"}` and `{placement:"display",
+ratio:"1x1"}`.
 - **Narration line:** _"Spec check done: all placements pass except K (listed).
   Derived crops are attached. Clear the spec gate to move to variant planning."_
 - **Signal:** `..._signal(..., "spec_validation", status="done")`.

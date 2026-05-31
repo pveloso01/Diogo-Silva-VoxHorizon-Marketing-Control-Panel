@@ -237,11 +237,21 @@ def pipeline_operator_spec_result(
 
     Use in ``spec_validation`` (an auto stage). Pass ``results=[{creative_id,
     platform, placement, ratio, status, checks, derived_path_supabase?,
-    derived_path_drive?}, ...]`` — the whole batch in one call. The worker
+    derived_path_drive?}, ...]``: the whole batch in one call. The worker
     upserts ``spec_check`` (idempotent on ``(creative_id, platform,
     placement)``) and rolls the spec_validation gate to the worst placement
     status (a failing placement holds the gate for the manager, never
     auto-passed). No spend; allowlisted.
+
+    ``placement`` and ``ratio`` are CLOSED enums. Submit only these values (an
+    out-of-vocabulary value like "feed_square" is rejected with HTTP 422):
+      placement: feed | stories | reels | marketplace | search | display | pmax
+      ratio:     1x1 | 9x16 | 16x9 | 4x5 | 1.91x1
+      status:    pass | warn | fail | exception | pending
+    placement and aspect ratio are SEPARATE fields. A square feed unit is
+    ``placement="feed", ratio="1x1"`` (NOT "feed_square"); a vertical story is
+    ``placement="stories", ratio="9x16"``; a reel is ``placement="reels",
+    ratio="9x16"``. Emit one result row per (creative, placement, ratio).
     """
     return helper.pipeline_operator_spec_result(
         pipeline_id=pipeline_id, results=results
