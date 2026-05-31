@@ -18,10 +18,27 @@ import { getSignedUrl as getVideoSignedUrl } from "@/lib/video-creatives";
  * narrow shapes the grid + gates consume (`lib/review/grid.ts`).
  */
 
+/**
+ * One advisory the manager weighs when accepting a soft gate state (a compliance
+ * `needs_review` finding or a spec `warn` placement). Surfaced in the
+ * GateReviewPanel so the accept is informed, not a rubber-stamp.
+ */
+export type GateAdvisory = {
+  creative_id: string;
+  stage: "compliance_review" | "spec_validation";
+  /** Short header, e.g. a rule id or "feed 4x5 (warn)". */
+  label: string;
+  /** The human note / required edit, when present. */
+  detail: string | null;
+  severity: string | null;
+};
+
 export type ReviewBundle = {
   creatives: GridCreative[];
   states: StageStateRow[];
   copyVariants: LaunchCopyVariant[];
+  /** Per-creative advisories for the soft-gate accept UI (compliance + spec). */
+  advisories: GateAdvisory[];
   /** Signed preview URL per creative id (null when unavailable). */
   signedUrls: Record<string, string | null>;
 };
@@ -143,6 +160,54 @@ export async function getReviewBundle(pipelineId: string): Promise<ReviewBundle>
     .eq("pipeline_id", pipelineId);
   const states: StageStateRow[] = (stateRows ?? []) as StageStateRow[];
 
+  // Per-creative advisories the manager reviews when accepting a soft gate
+  // (compliance needs_review findings + spec warn/fail placement notes). Scoped
+  // to this pipeline; best-effort (a read failure degrades to no advisories, so
+  // the panel still renders the accept action, just without the detail).
+  const advisories: GateAdvisory[] = [];
+  const { data: findingRows } = await supabase
+    .from("compliance_finding")
+    .select("creative_id, rule_id, severity, required_edit, overridden")
+    .eq("pipeline_id", pipelineId);
+  for (const f of (findingRows ?? []) as Array<{
+    creative_id: string;
+    rule_id: string | null;
+    severity: string | null;
+    required_edit: string | null;
+    overridden: boolean | null;
+  }>) {
+    if (f.overridden) continue;
+    advisories.push({
+      creative_id: f.creative_id,
+      stage: "compliance_review",
+      label: f.rule_id ?? "compliance finding",
+      detail: f.required_edit,
+      severity: f.severity,
+    });
+  }
+  const { data: specRows } = await supabase
+    .from("spec_check")
+    .select("creative_id, platform, placement, ratio, status, checks")
+    .eq("pipeline_id", pipelineId)
+    .in("status", ["warn", "fail", "exception"]);
+  for (const s of (specRows ?? []) as Array<{
+    creative_id: string;
+    platform: string | null;
+    placement: string | null;
+    ratio: string | null;
+    status: string | null;
+    checks: { notes?: unknown } | null;
+  }>) {
+    const note = typeof s.checks?.notes === "string" ? s.checks.notes : null;
+    advisories.push({
+      creative_id: s.creative_id,
+      stage: "spec_validation",
+      label: `${s.platform ?? ""} ${s.placement ?? ""} ${s.ratio ?? ""} (${s.status ?? ""})`.trim(),
+      detail: note,
+      severity: s.status,
+    });
+  }
+
   // Resolve signed preview URLs (best-effort; null when missing). Image creatives
   // sign their file_path_supabase; video creatives sign their captioned MP4 path.
   await Promise.all([
@@ -154,7 +219,7 @@ export async function getReviewBundle(pipelineId: string): Promise<ReviewBundle>
     }),
   ]);
 
-  return { creatives, states, copyVariants, signedUrls };
+  return { creatives, states, copyVariants, advisories, signedUrls };
 }
 
 /**
