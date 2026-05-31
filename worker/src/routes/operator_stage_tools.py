@@ -76,6 +76,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..auth import verify_secret
+from ..generated.db_enums import Placements, Ratios
 from ..services import video_probe
 from ..services.pipeline_runner import emit_pipeline_event, fetch_pipeline
 from ..services.storage import BUCKET
@@ -350,14 +351,23 @@ async def persist_copy(body: CopyInput) -> dict[str, Any]:
 
 
 class SpecResult(BaseModel):
-    """One per-placement spec-validation result (+ derived crop refs)."""
+    """One per-placement spec-validation result (+ derived crop refs).
+
+    ``placement`` and ``ratio`` are constrained to the DB ``placement_enum`` /
+    ``ratio`` value sets (the generated :data:`Placements` / :data:`Ratios`
+    Literals). An out-of-vocabulary value (e.g. the operator inventing
+    ``"feed_square"``) is now a clean 422 at the API boundary instead of a raw
+    500 when the value reaches the Postgres enum column. The operator must split
+    a "feed square" into ``placement="feed"`` + ``ratio="1x1"`` (see the
+    pipeline-operator SKILL spec_validation procedure).
+    """
 
     model_config = {"extra": "allow"}
 
     creative_id: str = Field(..., min_length=1)
     platform: Literal["meta", "google", "tiktok"] = "meta"
-    placement: str = Field(..., min_length=1)
-    ratio: str | None = None
+    placement: Placements
+    ratio: Ratios | None = None
     status: Literal["pending", "pass", "warn", "fail", "exception"]
     checks: dict[str, Any] = Field(default_factory=dict)
     derived_path_supabase: str | None = None

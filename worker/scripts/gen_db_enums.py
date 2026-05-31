@@ -46,6 +46,8 @@ EXPORTS: dict[str, str] = {
     "compliance_verdict_enum": "COMPLIANCE_VERDICTS",
     "qa_status_enum": "QA_STATUSES",
     "spec_status_enum": "SPEC_STATUSES",
+    "placement_enum": "PLACEMENTS",
+    "ratio": "RATIOS",
     "copy_variant_status_enum": "COPY_VARIANT_STATUSES",
     "launch_package_status_enum": "LAUNCH_PACKAGE_STATUSES",
     "ad_entity_kind_enum": "AD_ENTITY_KINDS",
