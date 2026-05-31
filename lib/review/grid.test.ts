@@ -63,20 +63,26 @@ describe("buildGridRows — forced ordering / locks", () => {
   it("unlocks the next cell once the upstream cell clears", () => {
     const [row] = buildGridRows(
       [creative("a")],
-      [st("a", "creative_qa", "passed"), st("a", "compliance_review", "pending")],
+      [st("a", "creative_qa", "passed"), st("a", "copy", "in_progress")],
     );
     expect(row!.cells.creative_qa.locked).toBe(false);
-    expect(row!.cells.compliance_review.locked).toBe(false);
-    // copy is still locked (compliance not cleared)
-    expect(row!.cells.copy.locked).toBe(true);
+    // copy is the next column after QA in the reordered sequence.
+    expect(row!.cells.copy.locked).toBe(false);
+    // compliance is still locked (copy not cleared)
+    expect(row!.cells.compliance_review.locked).toBe(true);
   });
 
   it("an overridden upstream still unlocks downstream", () => {
     const [row] = buildGridRows(
       [creative("a")],
-      [st("a", "creative_qa", "passed"), st("a", "compliance_review", "overridden", "ok")],
+      [
+        st("a", "creative_qa", "passed"),
+        st("a", "copy", "passed"),
+        st("a", "compliance_review", "overridden", "ok"),
+      ],
     );
-    expect(row!.cells.copy.locked).toBe(false);
+    // compliance overridden (with QA + copy cleared) unlocks spec downstream.
+    expect(row!.cells.spec_validation.locked).toBe(false);
     expect(row!.cells.compliance_review.note).toBe("ok");
   });
 
@@ -215,11 +221,11 @@ describe("overriddenCreatives", () => {
 });
 
 describe("CREATIVE_STAGE_ORDER", () => {
-  it("is the forced QA → compliance → copy → spec sequence", () => {
+  it("is the forced QA → copy → compliance → spec sequence", () => {
     expect(CREATIVE_STAGE_ORDER).toEqual([
       "creative_qa",
-      "compliance_review",
       "copy",
+      "compliance_review",
       "spec_validation",
     ]);
   });

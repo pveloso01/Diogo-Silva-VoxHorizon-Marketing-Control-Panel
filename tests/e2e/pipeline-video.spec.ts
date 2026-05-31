@@ -33,11 +33,11 @@ import {
  *   ideation→review               UI Continue (picks a video concept)
  *   review→generation             UI Approve
  *   generation→creative_qa        AUTO (migration 0046 B1 video QA seed trigger)
- *   creative_qa→compliance_review operator qa_run (surface=video) + advance
- *   compliance_review→copy (HARD) operator compliance_run (surface=video, clean
- *                                 script → real PASS) + advance
- *   copy→spec_validation          operator copy (video_copy_variants) + manager
+ *   creative_qa→copy              operator qa_run (surface=video) + advance
+ *   copy→compliance_review        operator copy (video_copy_variants) + manager
  *                                 copy/decision approve (>=3) + advance
+ *   compliance_review→spec (HARD) operator compliance_run (surface=video, clean
+ *                                 script + approved copy → real PASS) + advance
  *   spec_validation→variant_plan  operator spec_result (reels; ffprobe spec
  *                                 backstop must PASS the MP4) + advance
  *   variant_plan→finalize_assets  manager variant-plan/decision approve
@@ -279,22 +279,6 @@ test.describe("pipeline - video format", () => {
     expect(qaResults[0]?.surface).toBe("video");
     expect(qaResults[0]?.verdict).toBe("pass");
 
-    await expectAdvance(pipelineId, "compliance_review");
-
-    // ===================================================================
-    // compliance_review → copy (HARD gate)
-    // The clean spoken script is scanned by the worker compliance engine; with
-    // no violating claim and no client offer-constraints it adjudicates a real
-    // PASS. (The HARD block/override mechanism is proven format-agnostically by
-    // the image spec; here we drive the faithful clean PASS so the gate clears.)
-    // ===================================================================
-    const comp = await workerPost("/work/pipeline/tools/compliance_run", {
-      pipeline_id: pipelineId,
-      items: [{ creative_id: creativeId, surface: "video" }],
-    });
-    expect(comp.status, JSON.stringify(comp.body)).toBe(200);
-    expect((comp.body as { rollup: string }).rollup).toBe("passed");
-
     await expectAdvance(pipelineId, "copy");
 
     // Focused UI assertion: the copy stage renders.
@@ -302,9 +286,10 @@ test.describe("pipeline - video format", () => {
     await expect(page.getByText(/^Copy$/).first()).toBeVisible({ timeout: 15_000 });
 
     // ===================================================================
-    // copy → spec_validation
+    // copy → compliance_review
     // The copy tool routes a video creative to video_copy_variants. Author 3
-    // variants, then approve each via the format-aware copy/decision route.
+    // variants, then approve each via the format-aware copy/decision route. Copy
+    // now precedes compliance, so compliance screens this approved copy.
     // ===================================================================
     for (let i = 1; i <= 3; i += 1) {
       const c = await workerPost("/work/pipeline/tools/copy", {
@@ -324,12 +309,6 @@ test.describe("pipeline - video format", () => {
       expect(c.status, JSON.stringify(c.body)).toBe(200);
     }
 
-    // The video copy tool does NOT re-arm compliance (the 0025 re-arm trigger
-    // is on copy_variants only), so the compliance PASS persists. Assert it.
-    const afterCopyStates = await readStageStates(pipelineId);
-    const compAfterCopy = afterCopyStates.find((s) => s.stage === "compliance_review");
-    expect(compAfterCopy?.status).toBe("passed");
-
     // Manager approves each variant (status → approved) via the shared route.
     const copyRows = await readVideoCopyVariants([creativeId]);
     expect(copyRows.length).toBe(3);
@@ -340,6 +319,21 @@ test.describe("pipeline - video format", () => {
       });
       expect(dec.status, JSON.stringify(dec.body)).toBe(200);
     }
+    await expectAdvance(pipelineId, "compliance_review");
+
+    // ===================================================================
+    // compliance_review → spec_validation (HARD gate)
+    // The clean spoken script + approved copy is scanned by the worker compliance
+    // engine; with no violating claim and no client offer-constraints it
+    // adjudicates a real PASS so the gate clears.
+    // ===================================================================
+    const comp = await workerPost("/work/pipeline/tools/compliance_run", {
+      pipeline_id: pipelineId,
+      items: [{ creative_id: creativeId, surface: "video" }],
+    });
+    expect(comp.status, JSON.stringify(comp.body)).toBe(200);
+    expect((comp.body as { rollup: string }).rollup).toBe("passed");
+
     await expectAdvance(pipelineId, "spec_validation");
 
     // ===================================================================
@@ -474,8 +468,8 @@ test.describe("pipeline - video format", () => {
       "review",
       "generation",
       "creative_qa",
-      "compliance_review",
       "copy",
+      "compliance_review",
       "spec_validation",
       "variant_plan",
       "finalize_assets",

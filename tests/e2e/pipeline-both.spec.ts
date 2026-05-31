@@ -262,25 +262,12 @@ test.describe("pipeline - both formats", () => {
       .sort();
     expect(qaSurfaces).toEqual(["image", "video"]);
 
-    await expectAdvance(pipelineId, "compliance_review");
-
-    // ===================================================================
-    // compliance_review → copy (HARD): clean PASS for BOTH creatives
-    // ===================================================================
-    const comp = await workerPost("/work/pipeline/tools/compliance_run", {
-      pipeline_id: pipelineId,
-      items: [
-        { creative_id: imageId, surface: "copy" },
-        { creative_id: videoId, surface: "video" },
-      ],
-    });
-    expect(comp.status, JSON.stringify(comp.body)).toBe(200);
-    expect((comp.body as { rollup: string }).rollup).toBe("passed");
-
     await expectAdvance(pipelineId, "copy");
 
     // ===================================================================
-    // copy → spec_validation: 3 approved variants per creative (both tables)
+    // copy → compliance_review: 3 approved variants per creative (both tables).
+    // Copy now precedes compliance, so the approved copy is exactly what
+    // compliance screens (no pre-copy image-only pass, no re-arm split).
     // ===================================================================
     for (let i = 1; i <= 3; i += 1) {
       const ci = await workerPost("/work/pipeline/tools/copy", {
@@ -298,19 +285,6 @@ test.describe("pipeline - both formats", () => {
       });
       expect(cv.status, JSON.stringify(cv.body)).toBe(200);
     }
-
-    // Two-pass split: authoring IMAGE copy re-armed the image compliance unit to
-    // `pending` (0025 trigger on copy_variants); the VIDEO unit stays `passed`
-    // (no re-arm trigger on video_copy_variants).
-    const afterCopy = await readStageStates(pipelineId);
-    const imgComp = afterCopy.find(
-      (s) => s.stage === "compliance_review" && s.creative_id === imageId,
-    );
-    const vidComp = afterCopy.find(
-      (s) => s.stage === "compliance_review" && s.creative_id === videoId,
-    );
-    expect(imgComp?.status).toBe("pending");
-    expect(vidComp?.status).toBe("passed");
 
     // Approve image copy via the shared route (copy_variants).
     const imgCopyRows = await readImageCopyVariants(admin, pipelineId, imageId);
@@ -332,6 +306,22 @@ test.describe("pipeline - both formats", () => {
       });
       expect(dec.status, JSON.stringify(dec.body)).toBe(200);
     }
+
+    await expectAdvance(pipelineId, "compliance_review");
+
+    // ===================================================================
+    // compliance_review → spec_validation (HARD): clean PASS for BOTH creatives,
+    // now adjudicated over the final approved copy.
+    // ===================================================================
+    const comp = await workerPost("/work/pipeline/tools/compliance_run", {
+      pipeline_id: pipelineId,
+      items: [
+        { creative_id: imageId, surface: "copy" },
+        { creative_id: videoId, surface: "video" },
+      ],
+    });
+    expect(comp.status, JSON.stringify(comp.body)).toBe(200);
+    expect((comp.body as { rollup: string }).rollup).toBe("passed");
 
     await expectAdvance(pipelineId, "spec_validation");
 
@@ -404,10 +394,10 @@ test.describe("pipeline - both formats", () => {
 
     // ===================================================================
     // launch_handoff → monitor (HARD gate)
-    // The image two-pass: the copy re-arm left the image compliance unit
-    // `pending`, so re-run compliance for the image (clean PASS) to re-clear it.
-    // Video stayed clear. Then the operator records the PAUSED-first entities
-    // (server re-checks preconditions) and the manager approves.
+    // After the reorder compliance runs AFTER copy and stays cleared through to
+    // launch, so this image compliance_run is an idempotent re-assert of the
+    // clean pass over the final copy. Then the operator records the PAUSED-first
+    // entities (server re-checks preconditions) and the manager approves.
     // ===================================================================
     const compClear = await workerPost("/work/pipeline/tools/compliance_run", {
       pipeline_id: pipelineId,
@@ -488,8 +478,8 @@ test.describe("pipeline - both formats", () => {
       "review",
       "generation",
       "creative_qa",
-      "compliance_review",
       "copy",
+      "compliance_review",
       "spec_validation",
       "variant_plan",
       "finalize_assets",

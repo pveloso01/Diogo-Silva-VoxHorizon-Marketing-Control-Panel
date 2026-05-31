@@ -6,7 +6,7 @@
  *
  * This module owns the *logic* the UI keys off so it stays unit-testable and
  * agrees with the server `pipeline_rollup_cleared()`:
- *   - the canonical column order (the forced QA → compliance → copy → spec
+ *   - the canonical column order (the forced QA → copy → compliance → spec
  *     ordering),
  *   - the per-cell lock predicate (a downstream stage is locked until the
  *     upstream stage cleared for that creative),
@@ -49,8 +49,8 @@ export type CreativeLifecycle = "draft" | "approved" | "rejected" | "live" | "ki
  */
 export const CREATIVE_STAGE_ORDER: readonly CreativeStage[] = [
   "creative_qa",
-  "compliance_review",
   "copy",
+  "compliance_review",
   "spec_validation",
 ] as const;
 

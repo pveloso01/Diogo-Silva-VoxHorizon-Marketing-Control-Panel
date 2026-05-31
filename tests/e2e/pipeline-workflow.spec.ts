@@ -154,29 +154,14 @@ test.describe("pipeline -- FIX-A post-generation dispatch (image track)", () => 
     const qaClose = await awaitWorkerStageClosed(pipelineId, "worker_qa");
     expect(qaClose).toBe("completed");
     await waitForStageCleared(pipelineId, "creative_qa");
-    await expectAdvance(pipelineId, "compliance_review");
-
-    // ===================================================================
-    // compliance_review: FIX-A -- the advance route enqueued worker_compliance.
-    // The deterministic engine runs RULES ONLY (empty llm_candidates) over the
-    // clean creative -> PASS. Prove the consumer ran + the gate cleared.
-    // ===================================================================
-    const compWi = await awaitWorkItemEnqueued(
-      pipelineId,
-      "worker_compliance",
-      "compliance_review",
-    );
-    expect(compWi.id).toBeTruthy();
-    const compClose = await awaitWorkerStageClosed(pipelineId, "worker_compliance");
-    expect(compClose).toBe("completed");
-    await waitForStageCleared(pipelineId, "compliance_review");
     await expectAdvance(pipelineId, "copy");
 
     // ===================================================================
-    // copy -> spec_validation: copy stays MANUAL (no worker). The operator
-    // authors drafts (we drive it directly as the operator); the manager
-    // approves >=3 via the manager routes (NOT the verdict endpoint cheat --
-    // /copy + /copy/decision ARE the manager surfaces).
+    // copy (reordered: now BEFORE compliance): copy stays MANUAL (no worker).
+    // The operator authors drafts (we drive it directly as the operator); the
+    // manager approves >=3 via the manager routes (NOT the verdict endpoint cheat
+    // -- /copy + /copy/decision ARE the manager surfaces). Then advance to
+    // compliance, which screens this approved copy.
     // ===================================================================
     const creativeId = finals[0]!.id;
     for (let i = 1; i <= 3; i += 1) {
@@ -195,6 +180,24 @@ test.describe("pipeline -- FIX-A post-generation dispatch (image track)", () => 
       });
       expect(dec.status, JSON.stringify(dec.body)).toBe(200);
     }
+    await expectAdvance(pipelineId, "compliance_review");
+
+    // ===================================================================
+    // compliance_review: FIX-A -- the advance route enqueued worker_compliance
+    // on entry. It now runs over the FINAL approved copy (copy precedes
+    // compliance). The deterministic engine runs RULES ONLY (empty
+    // llm_candidates) over the clean creative -> PASS. Prove the consumer ran +
+    // the gate cleared.
+    // ===================================================================
+    const compWi = await awaitWorkItemEnqueued(
+      pipelineId,
+      "worker_compliance",
+      "compliance_review",
+    );
+    expect(compWi.id).toBeTruthy();
+    const compClose = await awaitWorkerStageClosed(pipelineId, "worker_compliance");
+    expect(compClose).toBe("completed");
+    await waitForStageCleared(pipelineId, "compliance_review");
     await expectAdvance(pipelineId, "spec_validation");
 
     // ===================================================================
@@ -244,9 +247,10 @@ test.describe("pipeline -- FIX-A post-generation dispatch (image track)", () => 
     await expectAdvance(pipelineId, "launch_handoff");
 
     // ===================================================================
-    // launch_handoff -> monitor (HARD gate; clean copy already cleared
-    // compliance via the worker pass, but the copy re-arm voided it -- re-clear
-    // it with the now-final clean copy, then record PAUSED-first + approve).
+    // launch_handoff -> monitor (HARD gate). After the reorder compliance runs
+    // AFTER copy and stays cleared through to launch (no copy edit voids it), so
+    // this compliance_run is just an idempotent re-assert of the clean pass over
+    // the final copy before we record PAUSED-first + approve.
     // ===================================================================
     const compClear = await workerPost("/work/pipeline/tools/compliance_run", {
       pipeline_id: pipelineId,
@@ -313,8 +317,8 @@ test.describe("pipeline -- FIX-A post-generation dispatch (image track)", () => 
       "review",
       "generation",
       "creative_qa",
-      "compliance_review",
       "copy",
+      "compliance_review",
       "spec_validation",
       "variant_plan",
       "finalize_assets",
@@ -401,19 +405,16 @@ test.describe("pipeline -- FIX-A post-generation dispatch (image track)", () => 
     expect((det.data ?? []).length).toBe(0);
 
     // Force the creative_qa gate clear (the daemon's chat would do this; we
-    // simulate the cleared gate so the advance proceeds) and advance: assert
-    // the next operator_dispatch(compliance_review) is enqueued on entry.
+    // simulate the cleared gate so the advance proceeds) and advance into copy
+    // (reordered: copy now follows QA): assert operator_dispatch(copy) on entry.
     await forceStageCleared(admin, opId, "creative_qa");
-    await advanceVia(opId, "compliance_review");
-    const compDisp = await awaitWorkItemEnqueued(opId, "operator_dispatch", "compliance_review");
-    expect(compDisp.id).toBeTruthy();
-
-    await forceStageCleared(admin, opId, "compliance_review");
     await advanceVia(opId, "copy");
+    const copyDisp = await awaitWorkItemEnqueued(opId, "operator_dispatch", "copy");
+    expect(copyDisp.id).toBeTruthy();
+
     // copy is the manager-approval stage -- the operator authors drafts via its
-    // dispatch, but the advance route does NOT enqueue a copy dispatch on entry
-    // for the copy stage itself (copy authoring is part of the compliance->copy
-    // operator dispatch). Author + approve copy via the manager routes.
+    // dispatch; the manager approves >=3 via the manager routes. Then advance to
+    // compliance, which screens the approved copy.
     const opCreative = (await readStageStates(opId)).find((s) => s.stage === "creative_qa");
     expect(opCreative).toBeTruthy();
     const opCreativeId = opCreative!.creative_id;
@@ -431,6 +432,12 @@ test.describe("pipeline -- FIX-A post-generation dispatch (image track)", () => 
       const dec = await managerPost(opId, "copy/decision", { id: row.id, decision: "approved" });
       expect(dec.status, JSON.stringify(dec.body)).toBe(200);
     }
+    await advanceVia(opId, "compliance_review");
+    // compliance entry -> operator_dispatch(compliance_review) (screens copy).
+    const compDisp = await awaitWorkItemEnqueued(opId, "operator_dispatch", "compliance_review");
+    expect(compDisp.id).toBeTruthy();
+
+    await forceStageCleared(admin, opId, "compliance_review");
     await advanceVia(opId, "spec_validation");
     // spec_validation entry -> operator_dispatch(spec_validation).
     const specDisp = await awaitWorkItemEnqueued(opId, "operator_dispatch", "spec_validation");
