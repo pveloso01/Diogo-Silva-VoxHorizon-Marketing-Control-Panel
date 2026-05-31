@@ -52,7 +52,7 @@ describe("CreativeReviewGrid", () => {
     expect(screen.getByTestId("grid-col-compliance_review")).toHaveAttribute("data-active", "true");
   });
 
-  it("opens the drill-in via the Review button", async () => {
+  it("opens the drill-in by clicking anywhere on the row", async () => {
     const onOpen = vi.fn();
     const user = userEvent.setup();
     render(
@@ -63,7 +63,25 @@ describe("CreativeReviewGrid", () => {
         onOpenCreative={onOpen}
       />,
     );
-    await user.click(screen.getByTestId("grid-open-a"));
+    // Whole row is the click target (no Review button).
+    await user.click(screen.getByTestId("grid-row-a"));
+    expect(onOpen).toHaveBeenCalledWith("a");
+  });
+
+  it("opens the drill-in via keyboard (Enter on the focused row)", async () => {
+    const onOpen = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <CreativeReviewGrid
+        creatives={creatives}
+        states={states}
+        mode="creative_qa"
+        onOpenCreative={onOpen}
+      />,
+    );
+    const row = screen.getByTestId("grid-row-a");
+    row.focus();
+    await user.keyboard("{Enter}");
     expect(onOpen).toHaveBeenCalledWith("a");
   });
 
