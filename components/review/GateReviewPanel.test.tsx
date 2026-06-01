@@ -159,11 +159,17 @@ describe("GateReviewPanel", () => {
     );
     await user.click(screen.getByTestId("accept-open-a"));
     expect(screen.queryByTestId("decision-confirm")).not.toBeInTheDocument();
+    // The justification is prefilled with the ACTUAL advisory (not boilerplate).
+    const note = screen.getByTestId("decision-note") as HTMLTextAreaElement;
+    expect(note.value).toContain("meta feed 4x5 (warn)");
+    expect(note.value).toContain("before/after crop");
     expect(screen.getByTestId("decision-submit")).not.toBeDisabled();
     await user.click(screen.getByTestId("decision-submit"));
     await waitFor(() => {
       const sentBody = JSON.parse((fetchSpy.mock.calls[0]![1] as { body: string }).body);
       expect(sentBody).toMatchObject({ stage: "spec_validation", decision: "accept" });
+      const sentNote = (sentBody as { note: string }).note;
+      expect(sentNote).toContain("meta feed 4x5 (warn)");
       expect(routerRefresh).toHaveBeenCalled();
     });
   });
