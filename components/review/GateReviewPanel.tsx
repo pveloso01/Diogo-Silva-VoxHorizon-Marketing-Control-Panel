@@ -57,7 +57,10 @@ const STAGE_NOUN: Record<GateReviewPanelProps["stage"], string> = {
   spec_validation: "Spec",
 };
 
-const ACCEPT_PREFILL: Record<GateReviewPanelProps["stage"], string> = {
+// Fallback justification only when there is no per-creative advisory text to
+// quote. The normal accept prefill is built from the ACTUAL advisory (see
+// `openAccept`) so the audited note references what was reviewed, not boilerplate.
+const ACCEPT_FALLBACK: Record<GateReviewPanelProps["stage"], string> = {
   compliance_review: "Advisory findings reviewed; no hard compliance blocks. Accepted for release.",
   spec_validation: "Crop reviewed and confirmed acceptable for the intended placements.",
 };
@@ -133,7 +136,17 @@ export function GateReviewPanel({
   const openAccept = (creativeId: string) => {
     setActiveCreative(creativeId);
     setActiveKind("accept");
-    setNote(ACCEPT_PREFILL[stage]);
+    // Prefill the justification with the ACTUAL advisory being accepted (still
+    // editable) so the audited note references what was reviewed, not generic
+    // boilerplate. Falls back to a stage default only when no advisory text is
+    // available to quote.
+    const items = advisoriesFor(creativeId);
+    const summary = items.map((a) => (a.detail ? `${a.label}: ${a.detail}` : a.label)).join("; ");
+    setNote(
+      summary
+        ? `Reviewed and accepting this ${STAGE_NOUN[stage].toLowerCase()} advisory: ${summary}`
+        : ACCEPT_FALLBACK[stage],
+    );
     setConfirm("");
     setError(null);
   };
